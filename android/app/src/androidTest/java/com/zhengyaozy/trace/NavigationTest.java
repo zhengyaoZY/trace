@@ -28,7 +28,7 @@ public class NavigationTest {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             onView(withText("在杭州，循着故事出发")).check(matches(isDisplayed()));
             screenshot("discover");
-            onView(withContentDescription("探索西湖")).perform(click());
+            onView(withContentDescription("探索西湖")).perform(scrollTo(), click());
             onView(withText("文字讲解")).check(matches(isDisplayed()));
             screenshot("detail");
             Espresso.pressBack();
