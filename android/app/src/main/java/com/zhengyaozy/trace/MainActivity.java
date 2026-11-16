@@ -107,7 +107,7 @@ public class MainActivity extends Activity {
         }
         HorizontalScrollView filter=new HorizontalScrollView(this);filter.setHorizontalScrollBarEnabled(false);LinearLayout chips=row();chips.setPadding(dp(14),dp(8),dp(14),dp(8));
         String[] options=tab==0?new String[]{"全部","历史","美食"}:new String[]{"全部","政府管理景区","自驾路线","徒步路线"};
-        for(String option:options){Button chip=button(option,option.equals(categories[tab]));chip.setTextSize(12);chip.setSelected(option.equals(categories[tab]));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,-2);cp.setMargins(dp(4),0,dp(4),0);chips.addView(chip,cp);if(option.equals(categories[tab]))chip.post(()->filter.smoothScrollTo(Math.max(0,chip.getLeft()-dp(14)),0));chip.setOnClickListener(v->{saveViewport();categories[tab]=option;selectedIds[tab]=null;listOffsets[tab]=0;render();});}filter.addView(chips);body.addView(filter);
+        for(String option:options){Button chip=button(option,option.equals(categories[tab]));chip.setTextSize(12);chip.setSelected(option.equals(categories[tab]));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,-2);cp.setMargins(dp(4),0,dp(4),0);chips.addView(chip,cp);if(option.equals(categories[tab]))chip.post(()->filter.scrollTo(Math.max(0,chip.getLeft()-dp(14)),0));chip.setOnClickListener(v->{saveViewport();categories[tab]=option;selectedIds[tab]=null;listOffsets[tab]=0;render();});}filter.addView(chips);body.addView(filter);
         java.util.List<Attraction> entries=location.nearby(tab==0?"人文":"自然",categories[tab]);
         map=newMap();map.setContentDescription("探索地图");
         double lat=Double.isNaN(cameraLat[tab])?location.centerLatitude():cameraLat[tab],lon=Double.isNaN(cameraLat[tab])?location.centerLongitude():cameraLon[tab];
@@ -115,7 +115,7 @@ public class MainActivity extends Activity {
         if(location.status==ExploreState.Status.READY){Marker you=new Marker(map);you.setPosition(new GeoPoint(location.latitude,location.longitude));you.setTitle(location.approximate?"您的大致位置":"您的当前位置");you.setIcon(markerIcon(0));you.setAnchor(.5f,1);map.getOverlays().add(you);}
         for(int i=0;i<entries.size();i++){Attraction a=entries.get(i);Marker marker=new Marker(map);marker.setPosition(new GeoPoint(a.latitude,a.longitude));marker.setAnchor(.5f,1);marker.setTitle(a.name);marker.setIcon(markerIcon(i+1));marker.setOnMarkerClickListener((m,v)->{selectContent(a.id);return true;});map.getOverlays().add(marker);}
         LinearLayout.LayoutParams frame=new LinearLayout.LayoutParams(-1,0,1);frame.setMargins(dp(14),0,dp(14),0);body.addView(map,frame);addCredit(body);
-        contentList=new ScrollView(this);contentList.setContentDescription("分类内容列表");contentList.setFillViewport(true);cards=column();cards.setPadding(dp(18),dp(4),dp(18),dp(12));contentList.addView(cards);body.addView(contentList,new LinearLayout.LayoutParams(-1,0,1));
+        contentList=new ScrollView(this);contentList.setContentDescription("分类内容列表");contentList.setFillViewport(true);contentList.setSmoothScrollingEnabled(false);contentList.setFocusableInTouchMode(true);contentList.setDescendantFocusability(android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS);cards=column();cards.setPadding(dp(18),dp(4),dp(18),dp(12));contentList.addView(cards);body.addView(contentList,new LinearLayout.LayoutParams(-1,0,1));contentList.requestFocus();
         if(entries.isEmpty()){
             title(cards,location.status==ExploreState.Status.REQUESTING?"正在获取当前位置…":"附近暂无示例内容",18);
             caption(cards,"首版内置杭州内容；按探索位置周围 50 公里筛选。",13);

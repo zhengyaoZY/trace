@@ -41,6 +41,6 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ./scripts/smoke.sh
 ```
 
-JUnit 覆盖五类数据、50 公里筛选、定位状态、显式示例区域和路线距离。Espresso 通过可注入 LocationSource 模拟杭州、杭州之外、权限拒绝、定位关闭和超时；验证分类、地图点选、详情返回、路线折线和文档。测试数据不写入正式 APK，不代表验证了真实手机定位信号。GitHub Actions 构建 APK、运行 Lint/JUnit，并在 Android 15 模拟器执行 UI 测试、导出截图。
+JUnit 覆盖五类数据、50 公里筛选、定位状态、显式示例区域和路线距离。Espresso 通过可注入 LocationSource 模拟杭州、杭州之外、权限拒绝、定位关闭和超时；验证分类、地图点选、详情返回、路线折线和文档。测试数据不写入正式 APK，不代表验证了真实手机定位信号。GitHub Actions 构建 APK、运行 Lint/JUnit，并在 Android 15 小屏幕模拟器分别以 1.0 与 1.3 倍系统字体执行 UI 测试、导出截图。
 
 真机额外检查：首次定位授权、仅大致位置、拒绝与永久拒绝、关闭/恢复系统定位、室内超时、后台停止、返回前台、无网络阅读。UI 额外检查窄屏、大字体与旋转屏幕。

@@ -14,6 +14,9 @@ public class NavigationTest {
     private void screenshot(String name) {
         android.app.Instrumentation instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation();
         instrumentation.waitForIdleSync();
+        java.util.concurrent.CountDownLatch frames=new java.util.concurrent.CountDownLatch(1);
+        instrumentation.runOnMainSync(()->android.view.Choreographer.getInstance().postFrameCallback(t->android.view.Choreographer.getInstance().postFrameCallback(next->frames.countDown())));
+        try{org.junit.Assert.assertTrue(frames.await(5,java.util.concurrent.TimeUnit.SECONDS));}catch(InterruptedException e){Thread.currentThread().interrupt();throw new AssertionError(e);}
         android.graphics.Bitmap image = instrumentation.getUiAutomation().takeScreenshot();
         org.junit.Assert.assertNotNull(image);
         java.io.File directory = new java.io.File(instrumentation.getTargetContext().getExternalFilesDir(null), "screenshots");
@@ -31,7 +34,7 @@ public class NavigationTest {
     @Test public void sectionsFiltersDetailsAndDocumentation(){
         try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
             onView(withText("当前位置")).check(matches(isDisplayed()));center(30.25,120.15);screenshot("culture");
-            onView(withText("美食")).perform(click());onView(withText("河坊街风味")).check(matches(isDisplayed()));
+            onView(withText("美食")).perform(click());onView(withText("河坊街风味")).perform(scrollTo()).check(matches(isDisplayed()));
             onView(withContentDescription("查看河坊街风味")).perform(scrollTo(),click());
             onView(withText("从一碗片儿川认识杭州")).check(matches(isDisplayed()));Espresso.pressBack();
             onView(withText("美食")).check(matches(isSelected()));center(30.25,120.15);
@@ -43,11 +46,11 @@ public class NavigationTest {
             onView(withContentDescription("查看雷峰塔")).perform(scrollTo(),click());screenshot("detail");Espresso.pressBack();
             onView(withText("历史")).check(matches(isSelected()));
             onView(withText("自然")).perform(click());center(30.25,120.15);screenshot("nature");
-            onView(withText("政府管理景区")).perform(scrollTo(),click());onView(withText("西湖")).check(matches(isDisplayed()));
+            onView(withText("政府管理景区")).perform(scrollTo(),click());onView(withText("西湖")).perform(scrollTo()).check(matches(isDisplayed()));
             onView(withText("自驾路线")).perform(scrollTo(),click());onView(withContentDescription("查看西湖外围自驾示意")).perform(scrollTo(),click());
             onView(withText("示例路线 · 非导航")).perform(scrollTo()).check(matches(isDisplayed()));
             onView(withContentDescription("路线预览地图")).perform(scrollTo()).check((v,e)->{if(e!=null)throw e;org.osmdroid.views.MapView m=(org.osmdroid.views.MapView)v;org.junit.Assert.assertTrue(m.getOverlays().get(0) instanceof org.osmdroid.views.overlay.Polyline);});screenshot("route");Espresso.pressBack();
-            onView(withText("徒步路线")).perform(scrollTo(),click());onView(withText("九溪徒步示意")).check(matches(isDisplayed()));
+            onView(withText("徒步路线")).perform(scrollTo(),click());onView(withText("九溪徒步示意")).perform(scrollTo()).check(matches(isDisplayed()));
             onView(withText("我的")).perform(click());onView(withText("应用说明")).check(matches(isDisplayed()));screenshot("documentation");
             onView(withText("定位与隐私")).perform(scrollTo()).check(matches(isDisplayed()));
         }
@@ -79,7 +82,7 @@ public class NavigationTest {
             MainActivity.testLocationSource=()->new LocationSource(){public void start(Callback cb){cb.failed(reason);}public void cancel(){}};
             try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
                 onView(withText("重试定位")).check(matches(isDisplayed()));onView(withText("美食")).perform(click());
-                onView(withText("河坊街风味")).check(matches(isDisplayed()));screenshot("fallback-"+reason);
+                onView(withText("河坊街风味")).perform(scrollTo()).check(matches(isDisplayed()));screenshot("fallback-"+reason);
                 onView(withText("我的")).perform(click());onView(withText("应用说明")).check(matches(isDisplayed()));
             }
         }
