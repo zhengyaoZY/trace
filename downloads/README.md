@@ -7,7 +7,7 @@
 - 应用：寻迹 0.3.0（版本号 3）
 - 包名：`com.zhengyaozy.trace`
 - 类型：可独立安装的 Debug APK，使用开发调试证书签名
-- 源码提交：`51fa142`
+- 源码提交：`bc1e2c1`
 - 构建：Gradle 8.11.1、AGP 8.9.1、JDK 17、SDK 35
 - 签名校验：`apksigner verify --verbose` 通过（APK Signature Scheme v2）
 - 签名证书 SHA-256：`5bfd7f21b91cd5ae0f8515cc153c1da3f4c15975042b44983ff3d2bc7922732f`
