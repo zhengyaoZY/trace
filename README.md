@@ -1,6 +1,6 @@
 # 寻迹 Trace
 
-现提供 Android 基础版本，参见 [Android 运行与 APK 安装说明](android/README.md)。Android 工程位于 `android/`，下文为 iOS 版本说明。
+现提供 Android 基础版本，可[下载 Android 安装包](downloads/README.md)，参见 [Android 运行与 APK 安装说明](android/README.md)。Android 工程位于 `android/`，下文为 iOS 版本说明。
 
 一个以杭州为示例的导游型 iOS 应用基础工程，使用 SwiftUI 和 MapKit，支持 iOS 17.0 及以上的 iPhone、iPad。界面为简体中文，采用青绿色主题，支持系统深浅色和动态字体。
 
