@@ -101,9 +101,9 @@ public class MainActivity extends Activity {
         Button recenter=button("◎ 定位",false);recenter.setContentDescription("回到当前位置");recenter.setTextSize(12);status.addView(recenter);recenter.setOnClickListener(v->{cameraLat[tab]=Double.NaN;location.sampleRegion=false;ensureLocation(true);if(location.status==ExploreState.Status.READY)render();});body.addView(status);
         if(location.status!=ExploreState.Status.READY&&location.status!=ExploreState.Status.REQUESTING&&location.status!=ExploreState.Status.IDLE){
             LinearLayout actions=row();actions.setPadding(dp(18),dp(4),dp(18),0);
-            Button retry=button("重试定位",false);actions.addView(retry,new LinearLayout.LayoutParams(0,-2,1));retry.setOnClickListener(v->ensureLocation(true));
-            Button settings=button("定位设置",false);actions.addView(settings,new LinearLayout.LayoutParams(0,-2,1));settings.setOnClickListener(v->startActivity(new android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)));
-            Button permission=button("应用权限",false);actions.addView(permission,new LinearLayout.LayoutParams(0,-2,1));permission.setOnClickListener(v->startActivity(new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+getPackageName()))));body.addView(actions);
+            Button retry=button("重试定位",false);retry.setTextSize(12);actions.addView(retry,new LinearLayout.LayoutParams(0,-2,1));retry.setOnClickListener(v->ensureLocation(true));
+            Button settings=button("定位设置",false);settings.setTextSize(12);actions.addView(settings,new LinearLayout.LayoutParams(0,-2,1));settings.setOnClickListener(v->startActivity(new android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)));
+            Button permission=button("应用权限",false);permission.setTextSize(12);actions.addView(permission,new LinearLayout.LayoutParams(0,-2,1));permission.setOnClickListener(v->startActivity(new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+getPackageName()))));body.addView(actions);
         }
         HorizontalScrollView filter=new HorizontalScrollView(this);filter.setHorizontalScrollBarEnabled(false);LinearLayout chips=row();chips.setPadding(dp(14),dp(8),dp(14),dp(8));
         String[] options=tab==0?new String[]{"全部","历史","美食"}:new String[]{"全部","政府管理景区","自驾路线","徒步路线"};

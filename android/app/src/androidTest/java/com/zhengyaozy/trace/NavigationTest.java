@@ -42,6 +42,11 @@ public class NavigationTest {
             onView(withContentDescription("探索地图")).perform(new androidx.test.espresso.action.GeneralClickAction(androidx.test.espresso.action.Tap.SINGLE,v->{
                 org.osmdroid.views.MapView m=(org.osmdroid.views.MapView)v;android.graphics.Point p=m.getProjection().toPixels(new org.osmdroid.util.GeoPoint(30.2313,120.1489),null);int[] origin=new int[2];v.getLocationOnScreen(origin);return new float[]{origin[0]+p.x,origin[1]+p.y-18*v.getResources().getDisplayMetrics().density};
             },androidx.test.espresso.action.Press.FINGER));
+            onView(withContentDescription("探索地图")).perform(new androidx.test.espresso.ViewAction(){
+                public org.hamcrest.Matcher<android.view.View> getConstraints(){return isAssignableFrom(org.osmdroid.views.MapView.class);}
+                public String getDescription(){return "等待地图单击确认（系统双击判定窗口）";}
+                public void perform(androidx.test.espresso.UiController ui,android.view.View v){ui.loopMainThreadForAtLeast(android.view.ViewConfiguration.getDoubleTapTimeout()+50);}
+            });
             onView(withText("雷峰塔")).check(matches(withParent(isSelected())));
             onView(withContentDescription("查看雷峰塔")).perform(scrollTo(),click());screenshot("detail");Espresso.pressBack();
             onView(withText("历史")).check(matches(isSelected()));
