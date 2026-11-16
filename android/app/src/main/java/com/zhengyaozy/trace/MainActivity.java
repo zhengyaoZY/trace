@@ -98,7 +98,7 @@ public class MainActivity extends Activity {
     private void showMap() {
         addText(body,"点击景点标记查看详情。地图需联网加载。",14,false);
         map=new MapView(this); map.setTileSource(TileSourceFactory.MAPNIK);
-        map.setMultiTouchControls(true); map.getController().setZoom(12.0);
+        map.setMultiTouchControls(true); map.getController().setZoom(11.0);
         map.getController().setCenter(new GeoPoint(30.275,120.145));
         for(Attraction a:Attraction.SAMPLES) {
             Marker m=new Marker(map); m.setPosition(new GeoPoint(a.latitude,a.longitude));
