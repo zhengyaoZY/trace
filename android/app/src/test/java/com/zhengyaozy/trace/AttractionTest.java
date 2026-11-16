@@ -4,7 +4,7 @@ import static org.junit.Assert.*;
 import java.util.HashSet;
 public class AttractionTest {
     @Test public void guidesHaveUniqueIdsAndReadableContent() {
-        assertEquals(3, Attraction.SAMPLES.size());
+        assertEquals(6, Attraction.SAMPLES.size());
         HashSet<String> ids = new HashSet<>();
         for (Attraction a : Attraction.SAMPLES) {
             assertTrue(ids.add(a.id));

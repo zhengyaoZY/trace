@@ -24,23 +24,64 @@ public class NavigationTest {
         finally { image.recycle(); }
     }
 
-    @Test public void discoverDetailsMapAndProfileAreReachable() {
-        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
-            onView(withText("在杭州，\n循着故事出发")).check(matches(isDisplayed()));
-            screenshot("discover");
-            onView(withContentDescription("探索西湖")).perform(scrollTo(), click());
-            screenshot("detail");
-            onView(withText("文字讲解")).perform(scrollTo()).check(matches(isDisplayed()));
-            screenshot("reading");
-            Espresso.pressBack();
-            onView(withText("地图")).perform(click());
-            onView(withText("杭州地图")).check(matches(isDisplayed()));
-            screenshot("map");
-            onView(withText("拱宸桥")).perform(click());
-            onView(withText("沿着运河，走进市井")).check(matches(isDisplayed()));
-            onView(withText("我的")).perform(click());
-            onView(withText("你好，城市探索者")).check(matches(isDisplayed()));
-            screenshot("profile");
+    @org.junit.Before public void locationFixture(){MainActivity.testLocationSource=()->fix(30.25,120.15,false);}
+    @org.junit.After public void clearFixture(){MainActivity.testLocationSource=null;}
+    private LocationSource fix(double lat,double lon,boolean approximate){return new LocationSource(){public void start(Callback cb){cb.ready(lat,lon,approximate);}public void cancel(){}};}
+    private void center(double lat,double lon){onView(withContentDescription("探索地图")).check((v,e)->{if(e!=null)throw e;org.osmdroid.views.MapView m=(org.osmdroid.views.MapView)v;org.junit.Assert.assertEquals(lat,m.getMapCenter().getLatitude(),0.002);org.junit.Assert.assertEquals(lon,m.getMapCenter().getLongitude(),0.002);});}
+    @Test public void sectionsFiltersDetailsAndDocumentation(){
+        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
+            onView(withText("当前位置")).check(matches(isDisplayed()));center(30.25,120.15);screenshot("culture");
+            onView(withText("美食")).perform(click());onView(withText("河坊街风味")).check(matches(isDisplayed()));
+            onView(withContentDescription("查看河坊街风味")).perform(scrollTo(),click());
+            onView(withText("从一碗片儿川认识杭州")).check(matches(isDisplayed()));Espresso.pressBack();
+            onView(withText("美食")).check(matches(isSelected()));center(30.25,120.15);
+            onView(withText("历史")).perform(click());
+            onView(withContentDescription("探索地图")).perform(new androidx.test.espresso.action.GeneralClickAction(androidx.test.espresso.action.Tap.SINGLE,v->{
+                org.osmdroid.views.MapView m=(org.osmdroid.views.MapView)v;android.graphics.Point p=m.getProjection().toPixels(new org.osmdroid.util.GeoPoint(30.2313,120.1489),null);int[] origin=new int[2];v.getLocationOnScreen(origin);return new float[]{origin[0]+p.x,origin[1]+p.y-18*v.getResources().getDisplayMetrics().density};
+            },androidx.test.espresso.action.Press.FINGER));
+            onView(withText("雷峰塔")).check(matches(withParent(isSelected())));
+            onView(withContentDescription("查看雷峰塔")).perform(scrollTo(),click());screenshot("detail");Espresso.pressBack();
+            onView(withText("历史")).check(matches(isSelected()));
+            onView(withText("自然")).perform(click());center(30.25,120.15);screenshot("nature");
+            onView(withText("政府管理景区")).perform(scrollTo(),click());onView(withText("西湖")).check(matches(isDisplayed()));
+            onView(withText("自驾路线")).perform(scrollTo(),click());onView(withContentDescription("查看西湖外围自驾示意")).perform(scrollTo(),click());
+            onView(withText("示例路线 · 非导航")).perform(scrollTo()).check(matches(isDisplayed()));
+            onView(withContentDescription("路线预览地图")).perform(scrollTo()).check((v,e)->{if(e!=null)throw e;org.osmdroid.views.MapView m=(org.osmdroid.views.MapView)v;org.junit.Assert.assertTrue(m.getOverlays().get(0) instanceof org.osmdroid.views.overlay.Polyline);});screenshot("route");Espresso.pressBack();
+            onView(withText("徒步路线")).perform(scrollTo(),click());onView(withText("九溪徒步示意")).check(matches(isDisplayed()));
+            onView(withText("我的")).perform(click());onView(withText("应用说明")).check(matches(isDisplayed()));screenshot("documentation");
+            onView(withText("定位与隐私")).perform(scrollTo()).check(matches(isDisplayed()));
+        }
+    }
+    private org.osmdroid.views.MapView findMap(android.view.View view){
+        if(view instanceof org.osmdroid.views.MapView)return (org.osmdroid.views.MapView)view;
+        if(view instanceof android.view.ViewGroup){android.view.ViewGroup group=(android.view.ViewGroup)view;for(int i=0;i<group.getChildCount();i++){org.osmdroid.views.MapView found=findMap(group.getChildAt(i));if(found!=null)return found;}}
+        return null;
+    }
+    @Test public void categoryAndCameraSurviveRecreation(){
+        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
+            onView(withText("美食")).perform(click());
+            scenario.onActivity(a->{org.osmdroid.views.MapView m=findMap(a.findViewById(android.R.id.content));m.getController().setCenter(new org.osmdroid.util.GeoPoint(30.245,120.16));m.getController().setZoom(13.0);});
+            scenario.recreate();onView(withText("美食")).check(matches(isSelected()));center(30.245,120.16);
+            onView(withContentDescription("查看河坊街风味")).perform(scrollTo(),click());Espresso.pressBack();center(30.245,120.16);
+            onView(withText("自然")).perform(click());center(30.25,120.15);
+        }
+    }
+    @Test public void outsideRegionAndExplicitSampleDoNotReplaceActualPosition(){
+        MainActivity.testLocationSource=()->fix(39.9,116.4,true);
+        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
+            center(39.9,116.4);onView(withText("附近暂无示例内容")).check(matches(isDisplayed()));screenshot("outside");
+            onView(withText("查看杭州示例")).perform(scrollTo(),click());onView(withText("杭州示例区域 · 非当前位置")).check(matches(isDisplayed()));
+            onView(withContentDescription("回到当前位置")).perform(click());center(39.9,116.4);onView(withText("当前位置 · 大致位置")).check(matches(isDisplayed()));
+        }
+    }
+    @Test public void failedFixesStillAllowSampleBrowsing(){
+        for(ExploreState.Status reason:new ExploreState.Status[]{ExploreState.Status.DENIED,ExploreState.Status.DISABLED,ExploreState.Status.TIMEOUT}){
+            MainActivity.testLocationSource=()->new LocationSource(){public void start(Callback cb){cb.failed(reason);}public void cancel(){}};
+            try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
+                onView(withText("重试定位")).check(matches(isDisplayed()));onView(withText("美食")).perform(click());
+                onView(withText("河坊街风味")).check(matches(isDisplayed()));screenshot("fallback-"+reason);
+                onView(withText("我的")).perform(click());onView(withText("应用说明")).check(matches(isDisplayed()));
+            }
         }
     }
 }
