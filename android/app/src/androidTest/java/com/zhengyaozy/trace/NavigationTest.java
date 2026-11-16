@@ -29,8 +29,9 @@ public class NavigationTest {
             onView(withText("在杭州，循着故事出发")).check(matches(isDisplayed()));
             screenshot("discover");
             onView(withContentDescription("探索西湖")).perform(scrollTo(), click());
-            onView(withText("文字讲解")).check(matches(isDisplayed()));
             screenshot("detail");
+            onView(withText("文字讲解")).perform(scrollTo()).check(matches(isDisplayed()));
+            screenshot("reading");
             Espresso.pressBack();
             onView(withText("地图")).perform(click());
             onView(withText("杭州地图")).check(matches(isDisplayed()));
