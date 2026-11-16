@@ -84,8 +84,8 @@ public class MainActivity extends Activity {
         if(tab<2)showExplore();else showProfile();
     }
     private LinearLayout scrollContent(){
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);scroll.setVerticalScrollBarEnabled(false);
-        LinearLayout c=column();c.setPadding(dp(22),dp(8),dp(22),dp(24));scroll.addView(c);body.addView(scroll,new LinearLayout.LayoutParams(-1,-1));return c;
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setSmoothScrollingEnabled(false);scroll.setFocusableInTouchMode(true);scroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS);scroll.setClipToPadding(false);scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout c=column();c.setPadding(dp(22),dp(8),dp(22),dp(24));scroll.addView(c);body.addView(scroll,new LinearLayout.LayoutParams(-1,-1));scroll.requestFocus();return c;
     }
     private void saveViewport(){
         if(tab<2&&detailId==null){

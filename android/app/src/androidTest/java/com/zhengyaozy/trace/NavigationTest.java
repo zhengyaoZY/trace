@@ -54,7 +54,7 @@ public class NavigationTest {
             onView(withText("政府管理景区")).perform(scrollTo(),click());onView(withText("西湖")).perform(scrollTo()).check(matches(isDisplayed()));
             onView(withText("自驾路线")).perform(scrollTo(),click());onView(withContentDescription("查看西湖外围自驾示意")).perform(scrollTo(),click());
             onView(withText("示例路线 · 非导航")).perform(scrollTo()).check(matches(isDisplayed()));
-            onView(withContentDescription("路线预览地图")).perform(scrollTo()).check((v,e)->{if(e!=null)throw e;org.osmdroid.views.MapView m=(org.osmdroid.views.MapView)v;org.junit.Assert.assertTrue(m.getOverlays().get(0) instanceof org.osmdroid.views.overlay.Polyline);});screenshot("route");Espresso.pressBack();
+            onView(withContentDescription("路线预览地图")).perform(scrollTo()).check(matches(isDisplayed())).check((v,e)->{if(e!=null)throw e;org.osmdroid.views.MapView m=(org.osmdroid.views.MapView)v;org.junit.Assert.assertTrue(m.getOverlays().get(0) instanceof org.osmdroid.views.overlay.Polyline);});screenshot("route");Espresso.pressBack();
             onView(withText("徒步路线")).perform(scrollTo(),click());onView(withText("九溪徒步示意")).perform(scrollTo()).check(matches(isDisplayed()));
             onView(withText("我的")).perform(click());onView(withText("应用说明")).check(matches(isDisplayed()));screenshot("documentation");
             onView(withText("定位与隐私")).perform(scrollTo()).check(matches(isDisplayed()));
