@@ -107,6 +107,8 @@ public class MainActivity extends Activity {
         }
         body.addView(map,new LinearLayout.LayoutParams(-1,0,1));
         TextView credit=text("© OpenStreetMap contributors · 数据遵循 ODbL",12,false);
+        credit.setText(android.text.Html.fromHtml("© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap contributors</a> · ODbL", android.text.Html.FROM_HTML_MODE_LEGACY));
+        credit.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         credit.setPadding(dp(12),dp(8),dp(12),dp(8)); body.addView(credit);
         // Text links also make every destination accessible without interacting with the map.
         LinearLayout places=new LinearLayout(this);
