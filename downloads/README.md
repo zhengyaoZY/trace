@@ -4,10 +4,10 @@
 
 适用于 Android 8.0 及以上手机，**不能安装到 iPhone**。下载后打开 APK，按系统提示允许浏览器安装未知应用即可。不需要 Android Studio、开发者会员或连接电脑。
 
-- 应用：寻迹 0.1.0（版本号 1）
+- 应用：寻迹 0.2.0（版本号 2）
 - 包名：`com.zhengyaozy.trace`
 - 类型：可独立安装的 Debug APK，使用开发调试证书签名
-- 源码提交：`ddacfd4`
+- 源码提交：`6b2e98b`
 - 构建：Gradle 8.11.1、AGP 8.9.1、JDK 17、SDK 35
 - 签名校验：`apksigner verify --verbose` 通过（APK Signature Scheme v2）
 - 签名证书 SHA-256：`5bfd7f21b91cd5ae0f8515cc153c1da3f4c15975042b44983ff3d2bc7922732f`
