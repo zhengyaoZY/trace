@@ -4,3 +4,7 @@ build/
 *.xcuserstate
 xcuserdata/
 *.xcresult
+.gradle/
+local.properties
+*.jks
+*.keystore
