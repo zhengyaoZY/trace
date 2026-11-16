@@ -138,18 +138,20 @@ public class MainActivity extends Activity {
     private void showDetail(Attraction a){
         heading.setText(a.name);LinearLayout c=scrollContent();
         Button back=button("‹  返回探索",false);back.setBackground(ripple(Color.TRANSPARENT,16));back.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);c.addView(back);back.setOnClickListener(v->returnToExplore());
+        if(a.isRoute()){
+            space(c,8);title(c,"示例路线 · 非导航",20);caption(c,String.format(java.util.Locale.CHINA,"折线估算 %.1f km；不代表实际道路或步行距离。",a.distanceKm()),14);
+            map=newMap();map.setContentDescription("路线预览地图");java.util.List<GeoPoint> points=new java.util.ArrayList<>();
+            for(Attraction.Waypoint point:a.waypoints){GeoPoint geo=new GeoPoint(point.latitude,point.longitude);points.add(geo);Marker m=new Marker(map);m.setPosition(geo);m.setTitle(point.name);m.setIcon(markerIcon(points.size()));m.setAnchor(.5f,1);map.getOverlays().add(m);}
+            org.osmdroid.views.overlay.Polyline line=new org.osmdroid.views.overlay.Polyline();line.setPoints(points);line.getOutlinePaint().setColor(TEAL);line.getOutlinePaint().setStrokeWidth(dp(3));line.getOutlinePaint().setPathEffect(new DashPathEffect(new float[]{dp(8),dp(5)},0));map.getOverlays().add(0,line);
+            final MapView routeMap=map;map.addOnFirstLayoutListener((v,l,t,r,b)->{if(map==routeMap)routeMap.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(points),false,dp(32));});
+            c.addView(map,new LinearLayout.LayoutParams(-1,dp(200)));addCredit(c);map.onResume();
+            for(int i=0;i<a.waypoints.size();i++)caption(c,String.format(java.util.Locale.CHINA,"%d  %s",i+1,a.waypoints.get(i).name),14);
+        }else{
         int index=Attraction.SAMPLES.indexOf(a)%3;TraceArt art=new TraceArt(this,index);art.setBackground(rounded(PALE,22));art.setClipToOutline(true);c.addView(art,new LinearLayout.LayoutParams(-1,dp(175)));
+        }
         space(c,20);eyebrow(c,"杭州示例  /  分类内容");title(c,a.subtitle,24);caption(c,a.introduction,16);
         space(c,22);LinearLayout article=column();article.setPadding(dp(18),dp(20),dp(18),dp(20));article.setBackground(rounded(Color.WHITE,22));
         eyebrow(article,"READ THE CITY");title(article,"文字讲解",20);TextView narration=caption(article,a.narration,17);narration.setTextColor(INK);narration.setLineSpacing(dp(7),1);narration.setTextIsSelectable(true);c.addView(article);
-        if(a.isRoute()){
-            space(c,18);title(c,"示例路线 · 非导航",20);caption(c,String.format(java.util.Locale.CHINA,"折线估算 %.1f km；不代表实际道路或步行距离。",a.distanceKm()),14);
-            map=newMap();map.setContentDescription("路线预览地图");java.util.List<GeoPoint> points=new java.util.ArrayList<>();
-            for(Attraction.Waypoint point:a.waypoints){GeoPoint geo=new GeoPoint(point.latitude,point.longitude);points.add(geo);Marker m=new Marker(map);m.setPosition(geo);m.setTitle(point.name);m.setIcon(markerIcon(points.size()));m.setAnchor(.5f,1);map.getOverlays().add(m);caption(c,String.format(java.util.Locale.CHINA,"%d  %s",points.size(),point.name),14);}
-            org.osmdroid.views.overlay.Polyline line=new org.osmdroid.views.overlay.Polyline();line.setPoints(points);line.getOutlinePaint().setColor(TEAL);line.getOutlinePaint().setStrokeWidth(dp(3));line.getOutlinePaint().setPathEffect(new DashPathEffect(new float[]{dp(8),dp(5)},0));map.getOverlays().add(0,line);
-            final MapView routeMap=map;map.addOnFirstLayoutListener((v,l,t,r,b)->{if(map==routeMap)routeMap.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(points),false,dp(32));});
-            c.addView(map,new LinearLayout.LayoutParams(-1,dp(240)));addCredit(c);map.onResume();
-        }
         if(!a.manager.isEmpty()){
             space(c,18);title(c,"管理与来源",18);caption(c,a.manager,14);TextView link=caption(c,a.source,13);android.text.util.Linkify.addLinks(link,android.text.util.Linkify.WEB_URLS);link.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         }
