@@ -63,7 +63,7 @@ public class MainActivity extends Activity {
     }
     private void showDiscover(){
         LinearLayout c=scrollContent();eyebrow(c,"WANDER · 城市漫游");
-        title(c,"在杭州，循着故事出发",28);caption(c,"看一处风景，读一段城市往事。",15);
+        title(c,"在杭州，\n循着故事出发",30);caption(c,"看一处风景，读一段城市往事。",15);
         LinearLayout section=row();section.setGravity(Gravity.CENTER_VERTICAL);section.setPadding(0,dp(24),0,dp(14));
         TextView selected=text("精选目的地",18,true);section.addView(selected,new LinearLayout.LayoutParams(0,-2,1));TextView count=text("03 处风景",12,false);count.setTextColor(MUTED);section.addView(count);c.addView(section);
         for(int i=0;i<Attraction.SAMPLES.size();i++){

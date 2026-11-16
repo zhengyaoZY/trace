@@ -26,7 +26,7 @@ public class NavigationTest {
 
     @Test public void discoverDetailsMapAndProfileAreReachable() {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
-            onView(withText("在杭州，循着故事出发")).check(matches(isDisplayed()));
+            onView(withText("在杭州，\n循着故事出发")).check(matches(isDisplayed()));
             screenshot("discover");
             onView(withContentDescription("探索西湖")).perform(scrollTo(), click());
             screenshot("detail");
