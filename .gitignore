@@ -10,3 +10,9 @@ local.properties
 *.keystore
 
 baidu.properties
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+api.properties

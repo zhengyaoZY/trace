@@ -34,7 +34,7 @@ final class FakeMapSurface implements MapSurface {
         View circle=new View(context);GradientDrawable bg=new GradientDrawable();bg.setShape(GradientDrawable.OVAL);bg.setColor(Color.rgb(19,105,88));circle.setBackground(bg);circle.setTag("visible-dot");hit.addView(circle,new FrameLayout.LayoutParams(dp(DOT_DP),dp(DOT_DP),Gravity.CENTER));
         FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(dp(HIT_DP),dp(HIT_DP));p.leftMargin=dp(16+index*72);p.topMargin=dp(20+index%2*16);root.addView(hit,p);dots.put(uid,hit);
     }
-    public void features(List<Attraction> entries,Consumer<String> select){clearDots();int i=0;for(Attraction a:entries)addDot(a.id,i++,select);}
+    public void features(List<Attraction> entries,Consumer<String> select){clearDots();int i=0;for(Attraction a:entries){Double score=a.metrics==null?null:a.metrics.score;addDot(a.id,i++,select);View hit=dots.get(a.id);hit.setTag(score);View dot=hit.findViewWithTag("visible-dot");dot.setLayoutParams(new FrameLayout.LayoutParams(dp(Math.round(MarkerStyle.diameterDp(score))),dp(Math.round(MarkerStyle.diameterDp(score))),Gravity.CENTER));}}
     public void selected(String uid){for(Map.Entry<String,View> e:dots.entrySet()){e.getValue().setSelected(e.getKey().equals(uid));View circle=e.getValue().findViewWithTag("visible-dot");GradientDrawable bg=(GradientDrawable)circle.getBackground();bg.setStroke(dp(e.getKey().equals(uid)?2:0),Color.WHITE);}}
     public void currentPosition(MapPoint gps){}
     public void route(List<Attraction.Waypoint> points){routePoints.addAll(points);int i=0;for(Attraction.Waypoint p:points)addDot(p.name,i++,id->{});root.invalidate();}

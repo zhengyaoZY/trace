@@ -1,0 +1,37 @@
+name: Backend API
+on:
+  push:
+    branches: [main, feat/android-bootstrap]
+    paths: ['server/**', '.github/workflows/server-build.yml']
+  pull_request:
+    paths: ['server/**', '.github/workflows/server-build.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: server
+      - run: npm test
+        working-directory: server
+      - name: Build and probe container without credentials
+        run: |
+          set -euo pipefail
+          docker build -t trace-api:ci server
+          docker run -d --name trace-api-ci -p 127.0.0.1:3000:3000 trace-api:ci
+          trap 'docker rm -f trace-api-ci' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/healthz; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3000/healthz
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/readyz)" = 503

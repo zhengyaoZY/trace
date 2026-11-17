@@ -20,7 +20,7 @@ final class BaiduMapSurface implements MapSurface {
     private Runnable loadedAction;
     private boolean loaded,destroyed;
     private Camera desired=new Camera(MapPoint.gps(30.24,120.15),15);
-    private BitmapDescriptor normalDot,selectedDot;
+    private final Map<String,BitmapDescriptor[]> icons=new HashMap<>();
     BaiduMapSurface(Context context){
         this.context=context;view=new MapView(context);map=view.getMap();view.showZoomControls(false);
         map.showMapPoi(false);map.showMapIndoorPoi(false);map.setBuildingsEnabled(false);
@@ -48,23 +48,24 @@ final class BaiduMapSurface implements MapSurface {
     private void bounds(LatLngBounds b,int padding){loadedAction=()->{if(!destroyed&&view.getWidth()>padding*2&&view.getHeight()>padding*2)map.setMapStatus(MapStatusUpdateFactory.newLatLngBounds(b,padding,padding,padding,padding));};view.post(loadedAction);if(loaded)loadedAction.run();}
     public void features(List<Attraction> entries,Consumer<String> select){
         map.clear();markers.clear();recycle();
-        normalDot=dot(false);selectedDot=dot(true);BitmapDescriptor normal=normalDot;for(Attraction a:entries){Bundle info=new Bundle();info.putString("uid",a.id);
+        icons.clear();for(Attraction a:entries){Bundle info=new Bundle();info.putString("uid",a.id);
+            Double score=a.metrics==null?null:a.metrics.score;BitmapDescriptor[] pair={dot(score,false),dot(score,true)};icons.put(a.id,pair);
             Marker m=(Marker)map.addOverlay(new MarkerOptions().position(latLng(new MapPoint(a.latitude,a.longitude,a.bd09)))
-                .icon(normal).anchor(.5f,.5f).extraInfo(info).zIndex(10));markers.put(a.id,m);
+                .icon(pair[0]).anchor(.5f,.5f).extraInfo(info).zIndex(10));markers.put(a.id,m);
         }
         map.setOnMarkerClickListener(m->{Bundle info=m.getExtraInfo();if(info!=null){select.accept(info.getString("uid"));return true;}return false;});
     }
-    private BitmapDescriptor dot(boolean selected){
+    private BitmapDescriptor dot(Double score,boolean selected){
         Bitmap bitmap=Bitmap.createBitmap(dp(HIT_DP),dp(HIT_DP),Bitmap.Config.ARGB_8888);
         Canvas canvas=new Canvas(bitmap);Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);paint.setColor(TEAL);
-        float center=dp(HIT_DP)/2f,radius=dp(DOT_DP)/2f;canvas.drawCircle(center,center,radius,paint);
+        float center=dp(HIT_DP)/2f,radius=MarkerStyle.diameterDp(score)*context.getResources().getDisplayMetrics().density/2f;canvas.drawCircle(center,center,radius,paint);
         if(selected){paint.setStyle(Paint.Style.STROKE);paint.setColor(Color.WHITE);paint.setStrokeWidth(dp(2));canvas.drawCircle(center,center,radius-dp(2),paint);}
         BitmapDescriptor descriptor=BitmapDescriptorFactory.fromBitmap(bitmap);bitmaps.add(descriptor);return descriptor;
     }
-    public void selected(String uid){if(normalDot==null)return;BitmapDescriptor normal=normalDot,active=selectedDot;for(Map.Entry<String,Marker> e:markers.entrySet())e.getValue().setIcon(e.getKey().equals(uid)?active:normal);}
+    public void selected(String uid){for(Map.Entry<String,Marker> e:markers.entrySet())e.getValue().setIcon(icons.get(e.getKey())[e.getKey().equals(uid)?1:0]);}
     public void currentPosition(MapPoint p){LatLng b=latLng(p);map.setMyLocationEnabled(true);map.setMyLocationData(new MyLocationData.Builder().latitude(b.latitude).longitude(b.longitude).build());}
     public void route(List<Attraction.Waypoint> waypoints){
-        List<LatLng> points=new ArrayList<>();for(Attraction.Waypoint w:waypoints){LatLng p=latLng(MapPoint.gps(w.latitude,w.longitude));points.add(p);map.addOverlay(new MarkerOptions().position(p).icon(dot(false)).anchor(.5f,.5f));}
+        List<LatLng> points=new ArrayList<>();for(Attraction.Waypoint w:waypoints){LatLng p=latLng(MapPoint.gps(w.latitude,w.longitude));points.add(p);map.addOverlay(new MarkerOptions().position(p).icon(dot(null,false)).anchor(.5f,.5f));}
         if(points.size()>1){map.addOverlay(new PolylineOptions().points(points).color(TEAL).width(dp(3)).dottedLine(true));LatLngBounds.Builder b=new LatLngBounds.Builder();for(LatLng p:points)b.include(p);bounds(b.build(),dp(24));}
     }
     public void resume(){view.onResume();}public void pause(){view.onPause();}

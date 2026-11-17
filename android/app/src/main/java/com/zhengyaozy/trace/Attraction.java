@@ -4,6 +4,12 @@ public final class Attraction {
     public final String id, name, subtitle, introduction, narration;
     public final double latitude, longitude;
     public final boolean online,bd09;
+    public final Metrics metrics;
+    static final class Metrics {
+        final Double score,heat7d;final String scoreSource,rankingRaw,rankBoard;final Integer rank;
+        Metrics(Double score,String scoreSource,Double heat7d,String rankingRaw,String rankBoard,Integer rank){this.score=score;this.scoreSource=scoreSource;this.heat7d=heat7d;this.rankingRaw=rankingRaw;this.rankBoard=rankBoard;this.rank=rank;}
+    }
+    Attraction withMetrics(Metrics metrics){return new Attraction(id,name,subtitle,introduction,narration,latitude,longitude,section,category,manager,source,waypoints,online,metrics);}
     public final String section, category, manager, source;
     public final java.util.List<Waypoint> waypoints;
     public static final class Waypoint {
@@ -23,6 +29,11 @@ public final class Attraction {
     }
     private Attraction(String id,String name,String subtitle,String introduction,String narration,double latitude,double longitude,
             String section,String category,String manager,String source,java.util.List<Waypoint> waypoints,boolean online){
+        this(id,name,subtitle,introduction,narration,latitude,longitude,section,category,manager,source,waypoints,online,null);
+    }
+    private Attraction(String id,String name,String subtitle,String introduction,String narration,double latitude,double longitude,
+            String section,String category,String manager,String source,java.util.List<Waypoint> waypoints,boolean online,Metrics metrics){
+        this.metrics=metrics;
         this.online=online;this.bd09=online;
         this.id=id;this.name=name;this.subtitle=subtitle;this.introduction=introduction;this.narration=narration;
         this.latitude=latitude;this.longitude=longitude;this.section=section;this.category=category;

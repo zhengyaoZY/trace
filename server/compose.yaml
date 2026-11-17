@@ -1,0 +1,8 @@
+services:
+  api:
+    build: .
+    ports: ['${BIND_ADDRESS:-127.0.0.1}:3000:3000']
+    environment:
+      BAIDU_SERVER_AK: ${BAIDU_SERVER_AK:-}
+      NODE_USE_ENV_PROXY: ${NODE_USE_ENV_PROXY:-0}
+    restart: unless-stopped

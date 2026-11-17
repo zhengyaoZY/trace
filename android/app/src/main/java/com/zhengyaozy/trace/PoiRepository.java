@@ -11,7 +11,7 @@ final class PoiRepository {
     private final LongSupplier clock;
     private long generation;
     private PoiProvider.Request active;
-    private static class Entry { final long time;final List<Attraction> places;Entry(long time,List<Attraction> places){this.time=time;this.places=places;} }
+    private static class Entry { final long expiresAt;final List<Attraction> places;Entry(long expiresAt,List<Attraction> places){this.expiresAt=expiresAt;this.places=places;} }
     static final class Cache {
         final Map<String,Entry> entries=new LinkedHashMap<String,Entry>(32,.75f,true){
             @Override protected boolean removeEldestEntry(Map.Entry<String,PoiRepository.Entry> e){return size()>32;}
@@ -22,27 +22,26 @@ final class PoiRepository {
     PoiRepository(PoiProvider provider,LongSupplier clock,Cache cache){this.provider=provider;this.clock=clock;this.cache=cache.entries;}
     void cancel(){generation++;if(active!=null)active.cancel();active=null;}
     void load(MapPoint center,String section,String category,boolean refresh,PoiProvider.Callback callback){
-        if(!center.bd09)throw new IllegalArgumentException("POI searches require BD-09");
+        if(center.bd09)throw new IllegalArgumentException("Backend queries require WGS84");
         cancel();final long token=generation;
         String key=String.format(Locale.ROOT,"%.6f/%.6f/%s/%s",center.latitude,center.longitude,section,category);
         Entry hit=cache.get(key);
-        if(!refresh&&hit!=null&&clock.getAsLong()-hit.time<CACHE_MILLIS){callback.success(hit.places);return;}
-        PoiProvider.Request request=provider.search(center,section,category,new PoiProvider.Callback(){
-            public void success(List<Attraction> places){if(token!=generation)return;active=null;List<Attraction> result=filter(center,places);cache.put(key,new Entry(clock.getAsLong(),result));callback.success(result);}
+        if(!refresh&&hit!=null&&clock.getAsLong()<hit.expiresAt){callback.success(new PoiProvider.Result(hit.places,hit.expiresAt));return;}
+        PoiProvider.Request request=provider.search(center,section,category,refresh,new PoiProvider.Callback(){
+            public void success(PoiProvider.Result data){if(token!=generation)return;active=null;List<Attraction> result=filter(data.places);long expires=Math.min(data.expiresAt,clock.getAsLong()+CACHE_MILLIS);cache.put(key,new Entry(expires,result));callback.success(new PoiProvider.Result(result,expires));}
             public void failure(PoiProvider.Failure reason){if(token!=generation)return;active=null;callback.failure(reason);}
         });
         // A provider may complete synchronously; cancellation remains harmless for a completed request.
         if(token==generation)active=request;else if(request!=null)request.cancel();
     }
-    static List<Attraction> filter(MapPoint center,List<Attraction> places){
+    static List<Attraction> filter(List<Attraction> places){
         Map<String,Attraction> unique=new LinkedHashMap<>();
         for(Attraction a:places)if(a.online&&a.bd09&&Double.isFinite(a.latitude)&&Double.isFinite(a.longitude)
-            &&ExploreState.distanceKm(center.latitude,center.longitude,a.latitude,a.longitude)<=1.0)unique.putIfAbsent(a.id,a);
+            &&Math.abs(a.latitude)<=90&&Math.abs(a.longitude)<=180)unique.putIfAbsent(a.id,a);
         List<Attraction> result=new ArrayList<>(unique.values());
-        result.sort(Comparator.comparingDouble((Attraction a)->ExploreState.distanceKm(center.latitude,center.longitude,a.latitude,a.longitude)).thenComparing(a->a.id));
         return Collections.unmodifiableList(new ArrayList<>(result.subList(0,Math.min(MAX_RESULTS,result.size()))));
     }
     static String errorText(PoiProvider.Failure reason){
-        switch(reason){case AUTH:return "百度地图鉴权失败，请核对 AK、包名和签名";case QUOTA:return "百度检索配额不足，请稍后重试";case NETWORK:return "网络连接失败，请重试";default:return "百度周边检索暂不可用，请重试";}
+        switch(reason){case SERVER_CONFIG:return "景点服务尚未配置百度服务端凭据";case CONFIG:return "尚未配置景点服务地址";case AUTH:return "景点数据服务配置异常，请稍后重试";case QUOTA:return "景点数据服务配额不足，请稍后重试";case RATE_LIMIT:return "请求过于频繁，请稍后重试";case TIMEOUT:return "景点服务请求超时，请重试";case NETWORK:return "网络连接失败，请重试";default:return "景点数据服务暂不可用，请重试";}
     }
 }
