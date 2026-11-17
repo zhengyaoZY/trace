@@ -33,6 +33,11 @@ public class PoiRepositoryTest {
         time.set(300000);repo.load(center,"人文","历史",false,new Result());assertEquals(2,p.calls);p.callbacks.get(1).success(Collections.emptyList());
         repo.load(center,"人文","历史",true,new Result());assertEquals(3,p.calls);
     }
+    @Test public void cacheSurvivesActivityRepositoryRecreation(){
+        Provider p=new Provider();PoiRepository.Cache cache=new PoiRepository.Cache();
+        PoiRepository first=new PoiRepository(p,()->0,cache);first.load(center,"人文","全部",false,new Result());p.callbacks.get(0).success(Arrays.asList(place("a",30,120)));first.cancel();
+        Result restored=new Result();new PoiRepository(p,()->1,cache).load(center,"人文","全部",false,restored);assertEquals(1,p.calls);assertEquals(1,restored.places.size());
+    }
     @Test public void lateResultsAndErrorsFromOldCategoriesAreDiscarded(){
         Provider p=new Provider();PoiRepository repo=new PoiRepository(p,()->0);Result old=new Result(),fresh=new Result();
         repo.load(center,"人文","历史",false,old);repo.load(center,"人文","美食",false,fresh);

@@ -33,16 +33,18 @@ public class MainActivity extends Activity {
         java.util.function.Function<android.content.Context,MapSurface> maps;
         PoiProvider pois;
         boolean consent=true,online=true;
+        final PoiRepository.Cache cache=new PoiRepository.Cache();
     }
     static TestDependencies tests;
     private PoiRepository repository;
+    private static final PoiRepository.Cache processCache=new PoiRepository.Cache();
     private final android.os.Handler ui=new android.os.Handler(android.os.Looper.getMainLooper());
     private String queryKey="";
     private long queryGeneration;
     private boolean loading,forceNext,privacyPrompted;
     private PoiProvider.Failure poiFailure;
     private java.util.List<Attraction> liveEntries=java.util.Collections.emptyList();
-    private final Runnable sdkChanged=()->{if(!isFinishing()){if(tab<2&&detailId==null)render();}};
+    private final Runnable sdkChanged=()->{if(!isFinishing()){if(tab<2&&detailId==null){saveViewport();render();}}};
 
 
 
@@ -67,7 +69,7 @@ public class MainActivity extends Activity {
         }
         if(state!=null&&state.getBoolean("detailOnline"))detail=Attraction.poi(state.getString("detailUid"),state.getString("detailName"),state.getString("detailAddress"),"",state.getDouble("detailLat"),state.getDouble("detailLon"),state.getString("detailSection"),state.getString("detailCategory"));
         source=tests!=null&&tests.location!=null?tests.location.get():new DeviceLocationSource(this);
-        repository=new PoiRepository(tests!=null&&tests.pois!=null?tests.pois:new BaiduPoiProvider(),android.os.SystemClock::elapsedRealtime);
+        repository=new PoiRepository(tests!=null&&tests.pois!=null?tests.pois:new BaiduPoiProvider(),android.os.SystemClock::elapsedRealtime,tests!=null?tests.cache:processCache);
         BaiduRuntime.observe(sdkChanged);
         render();
     }
@@ -145,7 +147,7 @@ public class MainActivity extends Activity {
         updateSelection();final ScrollView list=contentList;final int offset=listOffsets[tab];list.post(()->list.scrollTo(0,offset));map.resume();
     }
     void selectContent(String id){selectedIds[tab]=id;updateSelection();LinearLayout card=cardViews.get(id);if(card!=null&&contentList!=null)contentList.smoothScrollTo(0,card.getTop());}
-    private void updateSelection(){for(java.util.Map.Entry<String,LinearLayout> e:cardViews.entrySet()){GradientDrawable bg=rounded(Color.WHITE,18);boolean selected=e.getKey().equals(selectedIds[tab]);if(selected)bg.setStroke(dp(2),TEAL);e.getValue().setBackground(bg);e.getValue().setSelected(selected);}}
+    private void updateSelection(){for(java.util.Map.Entry<String,LinearLayout> e:cardViews.entrySet()){GradientDrawable bg=rounded(Color.WHITE,18);boolean selected=e.getKey().equals(selectedIds[tab]);if(selected)bg.setStroke(dp(2),TEAL);e.getValue().setBackground(bg);e.getValue().setSelected(selected);}if(map!=null&&tab<2&&detailId==null)map.selected(selectedIds[tab]);}
     private boolean privacyGranted(){return tests!=null?tests.consent:getPreferences(MODE_PRIVATE).getBoolean("baiduPrivacy",false);}
     private boolean onlineReady(){return tests!=null?tests.online&&tests.consent:privacyGranted()&&BaiduRuntime.state==BaiduRuntime.State.READY;}
     private MapSurface newMap(){
@@ -174,7 +176,11 @@ public class MainActivity extends Activity {
         if(location.sampleRegion)return location.nearby(section(),categories[tab]);
         if(onlineReady()&&!categories[tab].endsWith("路线"))result.addAll(liveEntries);
         for(Attraction a:location.nearby(section(),categories[tab]))if(a.isRoute())result.add(a);
-        return result;
+        if(onlineReady()){
+            MapPoint center=map.project(MapPoint.gps(location.centerLatitude(),location.centerLongitude()));
+            result.sort(java.util.Comparator.comparingDouble(a->{MapPoint point=map.project(new MapPoint(a.latitude,a.longitude,a.bd09));return ExploreState.distanceKm(center.latitude,center.longitude,point.latitude,point.longitude);}));
+        }
+        return result.subList(0,Math.min(PoiRepository.MAX_RESULTS,result.size()));
     }
     private void consentDialog(){
         privacyPrompted=true;
@@ -208,7 +214,7 @@ public class MainActivity extends Activity {
         document(c,"使用指南","人文与自然首页以当前位置为中心展示地图。横向切换分类，地图标记与卡片同步筛选。轻点标记选中卡片，点击查看详情阅读内容。◎ 定位可回到当前位置。点击卡片空白处可在地图中聚焦。");
         document(c,"分类说明","人文包含历史、美食；自然包含自然景区、自驾路线、徒步路线。路线是静态示意，不是实测轨迹或导航，折线距离不代表真实行程距离。");
         Button enable=button("百度地图使用与配置",false);c.addView(enable);enable.setOnClickListener(v->{if(!privacyGranted())consentDialog();else new android.app.AlertDialog.Builder(this).setTitle("百度地图配置").setMessage(tests!=null?"测试数据，非在线验证":BaiduRuntime.message()+"\n配置步骤见仓库 Android 文档。Android AK 必须绑定包名及 APK 签名 SHA-1。定位授权并不等同于 SDK 使用同意。").setPositiveButton("知道了",null).show();});
-        document(c,"定位与隐私","只申请前台定位，支持大致位置，不在后台跟踪，不保存定位历史、不上传至业务后台。定位失败时明确标注杭州示例区域。同意百度 SDK 使用后，位置与必要设备信息会由 SDK 向百度发送以提供地图和检索服务；不经过本应用后台。未同意前不初始化 SDK。");
+        document(c,"定位与隐私","只申请前台定位，支持大致位置，不在后台跟踪，不持久化定位历史、不上传至业务后台；仅保留短时查询结果内存缓存。定位失败时明确标注杭州示例区域。同意百度 SDK 使用后，位置与必要设备信息会由 SDK 向百度发送以提供地图和检索服务；不经过本应用后台。未同意前不初始化 SDK。");
         document(c,"百度周边与圆点", "百度 Android SDK 9.0.0 直接检索当前位置半径 1000 米的周边地点，无业务后台。检索最多显示 100 条，按 UID 去重及距离排序。同一位置与分类缓存五分钟，定位按钮可刷新。拖动和缩放只改变视野，不改变检索中心。SDK 未提供官方榜单排名和近七天热度，本阶段统一使用等大圆点，不用评分、评论数或搜索顺序冒充热度。");
         document(c,"示例数据与地图","真实景点来自百度周边检索；示例模式仅提供杭州本地内容，两者明确标注。自驾、徒步是本地示例路线，按起点是否在一公里内筛选，不是百度规划路线。查看杭州示例只改变探索区域，不表示您已位于杭州。文本可离线阅读，底图来自百度地图，需有效 AK、SDK 使用同意和网络。没有 AK 时仅可阅读示例与文档，在线接入待验证。官方来源链接与景区公告用于核对信息，不提供实时营业、路况或通行保证。");
         document(c,"版本信息","寻迹 Android 0.4.0（4）\n无账号、无业务后台；个人试用的调试版本。地图与检索：百度地图 SDK 9.0.0。");
@@ -234,7 +240,7 @@ public class MainActivity extends Activity {
     }
     private void stopLocation(){locationGeneration++;if(source!=null)source.cancel();if(location.status==ExploreState.Status.REQUESTING)location.status=ExploreState.Status.IDLE;}
     @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(code!=73)return;location.status=ExploreState.Status.IDLE;if(tab==2)return;if(permitted())ensureLocation(false);else{location.fail(ExploreState.Status.DENIED);render();}}
-    @Override protected void onStart(){super.onStart();if(privacyGranted()){if(tests==null)BaiduRuntime.start(this);if(tab<2)ensureLocation(false);}else if(!privacyPrompted&&(tests!=null||!getPreferences(MODE_PRIVATE).getBoolean("privacyChoiceMade",false)))consentDialog();}
+    @Override protected void onStart(){super.onStart();if(privacyGranted()){if(tests==null)BaiduRuntime.start(this);if(tab<2){ensureLocation(false);if(detailId==null)render();}}else if(!privacyPrompted&&(tests!=null||!getPreferences(MODE_PRIVATE).getBoolean("privacyChoiceMade",false)))consentDialog();}
     @Override protected void onStop(){saveViewport();repository.cancel();queryKey="";stopLocation();super.onStop();}
     @Override public void onBackPressed(){if(detailId!=null){returnToExplore();}else if(tab!=0){tab=0;cameraLat[0]=Double.NaN;render();ensureLocation(false);}else super.onBackPressed();}
     @Override protected void onSaveInstanceState(Bundle s){saveViewport();if(detail!=null&&detail.online){s.putBoolean("detailOnline",true);s.putString("detailUid",detail.id.substring(6));s.putString("detailName",detail.name);s.putString("detailAddress",detail.subtitle);s.putDouble("detailLat",detail.latitude);s.putDouble("detailLon",detail.longitude);s.putString("detailSection",detail.section);s.putString("detailCategory",detail.category);}s.putString("locationStatus",location.status.name());s.putDouble("fixLat",location.latitude);s.putDouble("fixLon",location.longitude);s.putBoolean("approximate",location.approximate);s.putBoolean("sampleRegion",location.sampleRegion);s.putLong("fixTime",fixTime);s.putInt("tab",tab);s.putString("detail",detailId);for(int i=0;i<2;i++){s.putString("category"+i,categories[i]);s.putString("selected"+i,selectedIds[i]);s.putDouble("lat"+i,cameraLat[i]);s.putDouble("lon"+i,cameraLon[i]);s.putDouble("zoom"+i,cameraZoom[i]);s.putBoolean("bd"+i,cameraBd[i]);s.putInt("offset"+i,listOffsets[i]);}super.onSaveInstanceState(s);}

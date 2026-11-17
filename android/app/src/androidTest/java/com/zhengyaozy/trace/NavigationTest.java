@@ -51,7 +51,7 @@ public class NavigationTest {
         try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
             onView(withText("模拟历史景点")).perform(scrollTo()).check(matches(isDisplayed()));assertCenter(30.24,120.15);screenshot("culture-test-data");
             org.junit.Assert.assertEquals(1000,FakeMapSurface.lastFitRadius);
-            onView(withContentDescription("景点圆点:baidu:near")).perform(click());onView(withText("模拟历史景点")).check(matches(withParent(isSelected())));
+            onView(withContentDescription("景点圆点:baidu:near")).perform(click());onView(withText("模拟历史景点")).check(matches(withParent(isSelected())));org.junit.Assert.assertTrue(currentMap().dots.get("baidu:near").isSelected());
             onView(withContentDescription("查看模拟历史景点")).perform(scrollTo(),click());onView(withText("地点介绍")).perform(scrollTo());onView(withText("暂无介绍")).check(matches(isDisplayed()));Espresso.pressBack();
             onView(withText("美食")).perform(click());onView(withText("模拟美食地点")).perform(scrollTo()).check(matches(isDisplayed()));
             onView(withContentDescription("查看模拟美食地点")).perform(scrollTo(),click());scenario.recreate();onView(withText("测试餐饮地址")).check(matches(isDisplayed()));Espresso.pressBack();onView(withText("美食")).check(matches(isSelected()));
@@ -82,12 +82,25 @@ public class NavigationTest {
             }
         }
     }
+    @Test public void backgroundCancelsPendingQueryAndResumesWithoutStaleResults(){
+        java.util.List<PoiProvider.Callback> pending=new java.util.ArrayList<>();deps.pois=(p,s,c,cb)->{pending.add(cb);return ()->{};};
+        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
+            onView(withText("正在检索周边…")).check(matches(isDisplayed()));
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
+            org.junit.Assert.assertTrue(pending.size()>=2);
+            scenario.onActivity(a->{pending.get(0).failure(PoiProvider.Failure.AUTH);pending.get(pending.size()-1).success(java.util.Collections.emptyList());});
+            onView(withText("一公里内暂无可显示的景点")).check(matches(isDisplayed()));
+            onView(withText(PoiRepository.errorText(PoiProvider.Failure.AUTH))).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist());
+        }
+    }
     @Test public void missingKeyAndDeclinedConsentDoNotInitializeSdk(){
         deps.online=false;deps.consent=false;deps.maps=null;
         try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
             onView(withText("暂不使用")).perform(click());org.junit.Assert.assertEquals(0,requests.get());org.junit.Assert.assertFalse(BaiduRuntime.initialized);
             onView(withText("我的")).perform(click());onView(withText("应用说明")).check(matches(isDisplayed()));
             onView(withText("百度地图使用与配置")).perform(scrollTo(),click());onView(withText("同意并使用地图")).perform(click());
+            if(!BuildConfig.BAIDU_KEY_CONFIGURED)scenario.onActivity(a->{BaiduRuntime.start(a);org.junit.Assert.assertFalse(BaiduRuntime.initialized);org.junit.Assert.assertEquals(BaiduRuntime.State.MISSING_KEY,BaiduRuntime.state);});
             onView(withText("人文")).perform(click());onView(withText("一公里内暂无可显示的景点")).check(matches(isDisplayed()));org.junit.Assert.assertFalse(BaiduRuntime.initialized);screenshot("missing-ak");
         }
     }

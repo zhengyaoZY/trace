@@ -11,11 +11,15 @@ final class PoiRepository {
     private final LongSupplier clock;
     private long generation;
     private PoiProvider.Request active;
-    private final Map<String,Entry> cache=new LinkedHashMap<String,Entry>(32,.75f,true){
-        @Override protected boolean removeEldestEntry(Map.Entry<String,PoiRepository.Entry> e){return size()>32;}
-    };
     private static class Entry { final long time;final List<Attraction> places;Entry(long time,List<Attraction> places){this.time=time;this.places=places;} }
-    PoiRepository(PoiProvider provider,LongSupplier clock){this.provider=provider;this.clock=clock;}
+    static final class Cache {
+        final Map<String,Entry> entries=new LinkedHashMap<String,Entry>(32,.75f,true){
+            @Override protected boolean removeEldestEntry(Map.Entry<String,PoiRepository.Entry> e){return size()>32;}
+        };
+    }
+    private final Map<String,Entry> cache;
+    PoiRepository(PoiProvider provider,LongSupplier clock){this(provider,clock,new Cache());}
+    PoiRepository(PoiProvider provider,LongSupplier clock,Cache cache){this.provider=provider;this.clock=clock;this.cache=cache.entries;}
     void cancel(){generation++;if(active!=null)active.cancel();active=null;}
     void load(MapPoint center,String section,String category,boolean refresh,PoiProvider.Callback callback){
         if(!center.bd09)throw new IllegalArgumentException("POI searches require BD-09");

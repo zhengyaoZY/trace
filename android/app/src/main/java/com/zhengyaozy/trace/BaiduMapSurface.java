@@ -33,7 +33,7 @@ final class BaiduMapSurface implements MapSurface {
     private LatLng latLng(MapPoint p){MapPoint b=project(p);return new LatLng(b.latitude,b.longitude);}
     private int dp(int n){return Math.round(n*context.getResources().getDisplayMetrics().density);}
     public void camera(MapPoint p,Float zoom){
-        MapPoint b=project(p);desired=new Camera(b,zoom==null?15:zoom);LatLng center=latLng(b);loadedAction=()->map.setMapStatus(MapStatusUpdateFactory.newLatLngZoom(center,zoom==null?15:zoom));
+        MapPoint b=project(p);desired=new Camera(b,zoom==null?15:zoom);LatLng center=latLng(b);loadedAction=()->{if(!destroyed)map.setMapStatus(MapStatusUpdateFactory.newLatLngZoom(center,zoom==null?15:zoom));};
         loadedAction.run();
     }
     public Camera snapshot(){MapStatus s=map.getMapStatus();if(!loaded||s==null)return desired;return new Camera(new MapPoint(s.target.latitude,s.target.longitude,true),s.zoom);}
@@ -45,7 +45,7 @@ final class BaiduMapSurface implements MapSurface {
             .include(latLng(MapPoint.gps(Math.max(-89.9,gps.latitude-dLat),gps.longitude-dLon))).build();
         bounds(bounds,dp(16));
     }
-    private void bounds(LatLngBounds b,int padding){loadedAction=()->{if(view.getWidth()>padding*2&&view.getHeight()>padding*2)map.setMapStatus(MapStatusUpdateFactory.newLatLngBounds(b,padding,padding,padding,padding));};view.post(loadedAction);if(loaded)loadedAction.run();}
+    private void bounds(LatLngBounds b,int padding){loadedAction=()->{if(!destroyed&&view.getWidth()>padding*2&&view.getHeight()>padding*2)map.setMapStatus(MapStatusUpdateFactory.newLatLngBounds(b,padding,padding,padding,padding));};view.post(loadedAction);if(loaded)loadedAction.run();}
     public void features(List<Attraction> entries,Consumer<String> select){
         map.clear();markers.clear();recycle();
         normalDot=dot(false);selectedDot=dot(true);BitmapDescriptor normal=normalDot;for(Attraction a:entries){Bundle info=new Bundle();info.putString("uid",a.id);
