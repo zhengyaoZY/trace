@@ -18,7 +18,7 @@ public class HttpPoiProviderTest {
             thread=new Thread(()->{try(Socket client=server.accept()){
                 client.setSoTimeout(4000);InputStream in=client.getInputStream();ByteArrayOutputStream headers=new ByteArrayOutputStream();int next;
                 while((next=in.read())!=-1){headers.write(next);byte[] h=headers.toByteArray();int n=h.length;if(n>=4&&h[n-4]=='\r'&&h[n-3]=='\n'&&h[n-2]=='\r'&&h[n-1]=='\n')break;if(n>8192)throw new IOException();}
-                String header=headers.toString("UTF-8");assertTrue(header.startsWith("POST /api/v1/places/nearby HTTP/1.1"));int length=0;
+                String header=headers.toString("UTF-8");assertTrue(header.startsWith("POST /api/v2/places/nearby HTTP/1.1"));int length=0;
                 for(String line:header.split("\r\n"))if(line.toLowerCase().startsWith("content-length:"))length=Integer.parseInt(line.substring(15).trim());
                 byte[] data=new byte[length];int read=0;while(read<length){int n=in.read(data,read,length-read);if(n<0)throw new EOFException();read+=n;}body.set(new String(data,StandardCharsets.UTF_8));
                 byte[] response=payload.getBytes(StandardCharsets.UTF_8);OutputStream out=client.getOutputStream();out.write(("HTTP/1.1 "+status+" Result\r\nContent-Type: application/json\r\nContent-Length: "+response.length+"\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.UTF_8));out.write(response);out.flush();
@@ -28,8 +28,11 @@ public class HttpPoiProviderTest {
         public void close()throws Exception{server.close();thread.join(2000);if(error.get()!=null)throw new AssertionError(error.get());}
     }
     private PoiProvider.Result request(LocalServer server,AtomicReference<PoiProvider.Failure> failure)throws Exception{
+        return request(server,failure,MapVendor.BAIDU);
+    }
+    private PoiProvider.Result request(LocalServer server,AtomicReference<PoiProvider.Failure> failure,MapVendor vendor)throws Exception{
         CountDownLatch done=new CountDownLatch(1);AtomicReference<PoiProvider.Result> result=new AtomicReference<>();
-        HttpPoiProvider provider=new HttpPoiProvider(server.base());
+        HttpPoiProvider provider=new HttpPoiProvider(server.base(),vendor);
         provider.search(MapPoint.gps(30.24,120.15),"人文","历史",true,new PoiProvider.Callback(){public void success(PoiProvider.Result r){result.set(r);done.countDown();}public void failure(PoiProvider.Failure e){failure.set(e);done.countDown();}});
         assertTrue(done.await(6,TimeUnit.SECONDS));return result.get();
     }
@@ -47,6 +50,15 @@ public class HttpPoiProviderTest {
         }
         try(LocalServer server=new LocalServer(200,"{\"source\":\"baidu\",\"radiusMeters\":1000,\"expiresAt\":1,\"items\":[{\"location\":{\"coordinateSystem\":\"WGS84\"}}]}")){
             AtomicReference<PoiProvider.Failure> failure=new AtomicReference<>();assertNull(request(server,failure));assertEquals(PoiProvider.Failure.UNAVAILABLE,failure.get());
+        }
+    }
+    @Test public void amapUsesGcj02AndRejectsBaiduResponseRatherThanMixingDatums()throws Exception{
+        String response="{\"source\":\"amap\",\"radiusMeters\":1000,\"expiresAt\":300000,\"items\":[{\"id\":\"amap-poi\",\"name\":\"高德测试\",\"category\":\"历史\",\"location\":{\"latitude\":30.243,\"longitude\":120.153,\"coordinateSystem\":\"GCJ02\"},\"distanceMeters\":100,\"rankingRaw\":null,\"rank\":null,\"heat7d\":null,\"score\":null,\"scoreSource\":\"none\"}]}";
+        try(LocalServer server=new LocalServer(200,response)){
+            AtomicReference<PoiProvider.Failure> failure=new AtomicReference<>();PoiProvider.Result r=request(server,failure,MapVendor.AMAP);assertNull(failure.get());assertEquals("GCJ02",r.places.get(0).coordinateSystem);assertEquals("amap:amap-poi",r.places.get(0).id);assertNull(r.places.get(0).metrics.score);assertEquals("amap",new JSONObject(server.body.get()).getString("provider"));
+        }
+        for(String invalid:new String[]{response.replace("amap\"","baidu\""),response.replace("GCJ02","BD09")})try(LocalServer server=new LocalServer(200,invalid)){
+            AtomicReference<PoiProvider.Failure> failure=new AtomicReference<>();assertNull(request(server,failure,MapVendor.AMAP));assertEquals(PoiProvider.Failure.UNAVAILABLE,failure.get());
         }
     }
     @Test public void endpointPolicyRejectsPublicCleartextAndCredentialsInUrl(){

@@ -39,7 +39,7 @@ final class BaiduMapSurface implements MapSurface {
     public Camera snapshot(){MapStatus s=map.getMapStatus();if(!loaded||s==null)return desired;return new Camera(new MapPoint(s.target.latitude,s.target.longitude,true),s.zoom);}
     public void fitRadius(MapPoint gps,int meters){
         desired=new Camera(project(gps),Float.NaN);
-        if(gps.bd09)throw new IllegalArgumentException("radius bounds require GPS center");
+        if(!"WGS84".equals(gps.coordinateSystem))throw new IllegalArgumentException("radius bounds require GPS center");
         double dLat=Math.toDegrees(meters/6371008.8),dLon=dLat/Math.max(.01,Math.cos(Math.toRadians(gps.latitude)));
         LatLngBounds bounds=new LatLngBounds.Builder().include(latLng(MapPoint.gps(Math.min(89.9,gps.latitude+dLat),gps.longitude+dLon)))
             .include(latLng(MapPoint.gps(Math.max(-89.9,gps.latitude-dLat),gps.longitude-dLon))).build();
@@ -50,7 +50,7 @@ final class BaiduMapSurface implements MapSurface {
         map.clear();markers.clear();recycle();
         icons.clear();for(Attraction a:entries){Bundle info=new Bundle();info.putString("uid",a.id);
             Double score=a.metrics==null?null:a.metrics.score;BitmapDescriptor[] pair={dot(score,false),dot(score,true)};icons.put(a.id,pair);
-            Marker m=(Marker)map.addOverlay(new MarkerOptions().position(latLng(new MapPoint(a.latitude,a.longitude,a.bd09)))
+            Marker m=(Marker)map.addOverlay(new MarkerOptions().position(latLng(new MapPoint(a.latitude,a.longitude,a.coordinateSystem)))
                 .icon(pair[0]).anchor(.5f,.5f).extraInfo(info).zIndex(10));markers.put(a.id,m);
         }
         map.setOnMarkerClickListener(m->{Bundle info=m.getExtraInfo();if(info!=null){select.accept(info.getString("uid"));return true;}return false;});

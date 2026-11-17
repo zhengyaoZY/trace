@@ -8,6 +8,7 @@ on:
     paths: ['android/**', '.github/workflows/android-build.yml']
   workflow_dispatch:
 env:
+  AMAP_MAP_KEY: ${{ secrets.AMAP_MAP_KEY }}
   BAIDU_MAP_AK: ${{ secrets.BAIDU_MAP_AK }}
   API_BASE_URL: ${{ vars.API_BASE_URL }}
 permissions:

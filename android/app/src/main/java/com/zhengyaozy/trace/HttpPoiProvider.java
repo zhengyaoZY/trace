@@ -11,11 +11,13 @@ import java.util.concurrent.*;
 
 final class HttpPoiProvider implements PoiProvider {
     private final String base;
+    private final MapVendor vendor;
     private final Handler ui=new Handler(Looper.getMainLooper());
     private static final ScheduledExecutorService deadlines=Executors.newSingleThreadScheduledExecutor();
     private static final ExecutorService workers=new ThreadPoolExecutor(0,4,30,TimeUnit.SECONDS,new ArrayBlockingQueue<>(16));
-    HttpPoiProvider(){this(BuildConfig.API_BASE_URL);}
-    HttpPoiProvider(String base){this.base=base;}
+    HttpPoiProvider(){this(BuildConfig.API_BASE_URL,MapVendor.AMAP);}
+    HttpPoiProvider(String base){this(base,MapVendor.AMAP);}
+    HttpPoiProvider(String base,MapVendor vendor){this.base=base;this.vendor=vendor;}
     static boolean allowed(String value){
         try{URI u=URI.create(value);String host=u.getHost();if(host==null||u.getUserInfo()!=null||u.getQuery()!=null||u.getFragment()!=null)return false;
             if("https".equals(u.getScheme()))return true;
@@ -24,16 +26,16 @@ final class HttpPoiProvider implements PoiProvider {
         }catch(IllegalArgumentException e){return false;}
     }
     @Override public Request search(MapPoint gps,String section,String category,boolean refresh,Callback cb){
-        if(gps.bd09)throw new IllegalArgumentException("WGS84 request required");
+        if(!"WGS84".equals(gps.coordinateSystem))throw new IllegalArgumentException("WGS84 request required");
         Task task=new Task(cb);
         if(!allowed(base)){ui.post(()->task.fail(Failure.CONFIG));return task;}
         try{task.future=workers.submit(()->{
             long deadline=android.os.SystemClock.elapsedRealtime()+25_000;
             try{
-                URL url=new URL(base.replaceAll("/+$","")+"/api/v1/places/nearby");
+                URL url=new URL(base.replaceAll("/+$","")+"/api/v2/places/nearby");
                 HttpURLConnection c=(HttpURLConnection)url.openConnection();task.connection=c;c.setInstanceFollowRedirects(false);c.setConnectTimeout(8000);c.setReadTimeout(25000);c.setRequestMethod("POST");c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json; charset=utf-8");c.setRequestProperty("Accept","application/json");
                 JSONObject center=new JSONObject().put("latitude",gps.latitude).put("longitude",gps.longitude).put("coordinateSystem","WGS84");
-                byte[] payload=new JSONObject().put("center",center).put("section",section).put("category",category).put("radiusMeters",1000).put("refresh",refresh).toString().getBytes(StandardCharsets.UTF_8);c.setFixedLengthStreamingMode(payload.length);
+                byte[] payload=new JSONObject().put("provider",vendor.id).put("center",center).put("section",section).put("category",category).put("radiusMeters",1000).put("refresh",refresh).toString().getBytes(StandardCharsets.UTF_8);c.setFixedLengthStreamingMode(payload.length);
                 if(task.cancelled)return;
                 try(OutputStream out=c.getOutputStream()){out.write(payload);}
                 int status=c.getResponseCode();InputStream input=status>=400?c.getErrorStream():c.getInputStream();
@@ -42,16 +44,16 @@ final class HttpPoiProvider implements PoiProvider {
                 try(InputStream in=input){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1){if(task.cancelled)return;if(android.os.SystemClock.elapsedRealtime()>deadline)throw new SocketTimeoutException();bytes.write(buffer,0,n);if(bytes.size()>1_048_576)throw new IOException();}}
                 JSONObject response=new JSONObject(bytes.toString("UTF-8"));
                 if(status!=200){task.fail(error(response.optJSONObject("error"),status));return;}
-                if(response.getInt("radiusMeters")!=1000||!"baidu".equals(response.getString("source")))throw new JSONException("contract");
+                if(response.getInt("radiusMeters")!=1000||!vendor.id.equals(response.getString("source")))throw new JSONException("contract");
                 JSONArray items=response.getJSONArray("items");List<Attraction> result=new ArrayList<>();
                 if(items.length()>100)throw new JSONException("limit");
                 for(int i=0;i<items.length();i++){
-                    JSONObject item=items.getJSONObject(i),point=item.getJSONObject("location");if(!"BD09".equals(point.getString("coordinateSystem")))throw new JSONException("datum");
+                    JSONObject item=items.getJSONObject(i),point=item.getJSONObject("location");if(!vendor.datum.equals(point.getString("coordinateSystem")))throw new JSONException("datum");
                     double lat=point.getDouble("latitude"),lon=point.getDouble("longitude"),distance=item.getDouble("distanceMeters");
                     if(!Double.isFinite(lat)||!Double.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180||!Double.isFinite(distance)||distance<0||distance>1000)throw new JSONException("bounds");
                     Double score=number(item,"score"),heat=number(item,"heat7d");if(score!=null&&(score<0||score>1))throw new JSONException("score");
                     JSONObject rank=item.optJSONObject("rank");
-                    Attraction a=Attraction.poi(item.getString("id"),item.getString("name"),item.optString("address",""),"",lat,lon,section,item.getString("category"));
+                    Attraction a=Attraction.providerPoi(vendor,item.getString("id"),item.getString("name"),item.optString("address",""),lat,lon,section,item.getString("category"));
                     result.add(a.withMetrics(new Attraction.Metrics(score,item.getString("scoreSource"),heat,item.isNull("rankingRaw")?null:item.optString("rankingRaw"),rank==null?null:rank.getString("board"),rank==null?null:rank.getInt("position"))));
                 }
                 Result data=new Result(Collections.unmodifiableList(result),response.getLong("expiresAt"));task.success(data);

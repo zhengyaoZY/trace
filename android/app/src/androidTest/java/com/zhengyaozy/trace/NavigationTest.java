@@ -96,11 +96,12 @@ public class NavigationTest {
     }
     @Test public void oldSdkConsentDoesNotAuthorizeTheNewBackend(){
         android.content.Context context=androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getTargetContext();
-        context.getSharedPreferences("MainActivity",0).edit().putBoolean("baiduPrivacy",true).putBoolean("privacyChoiceMade",true).remove("privacyVersion").remove("privacyChoiceVersion").commit();
+        context.getSharedPreferences("MainActivity",0).edit().clear().putBoolean("baiduPrivacy",true).putBoolean("privacyChoiceMade",true).remove("privacyVersion").remove("privacyChoiceVersion").commit();
         MainActivity.tests=null;
         try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
             onView(withText("地图与周边服务使用说明")).check(matches(isDisplayed()));
-            onView(withText("暂不使用")).perform(click());org.junit.Assert.assertFalse(BaiduRuntime.initialized);
+            onView(withText("暂不使用")).perform(click());org.junit.Assert.assertFalse(BaiduRuntime.initialized);org.junit.Assert.assertFalse(AmapRuntime.initialized);
+            onView(withText("高德地图尚未启用\n可阅读文档与本地示例文本")).check(matches(isDisplayed()));
             onView(withText("我的")).perform(click());onView(withText("应用说明")).check(matches(isDisplayed()));
         }
     }
@@ -109,9 +110,27 @@ public class NavigationTest {
         try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
             onView(withText("暂不使用")).perform(click());org.junit.Assert.assertEquals(0,requests.get());org.junit.Assert.assertFalse(BaiduRuntime.initialized);
             onView(withText("我的")).perform(click());onView(withText("应用说明")).check(matches(isDisplayed()));
-            onView(withText("地图与服务使用配置")).perform(scrollTo(),click());onView(withText("同意并使用地图")).perform(click());
+            onView(withText("地图与服务使用配置")).perform(scrollTo(),click());onView(withText("百度地图")).perform(click());onView(withText("同意并使用地图")).perform(click());
             if(!BuildConfig.BAIDU_KEY_CONFIGURED)scenario.onActivity(a->{BaiduRuntime.start(a);org.junit.Assert.assertFalse(BaiduRuntime.initialized);org.junit.Assert.assertEquals(BaiduRuntime.State.MISSING_KEY,BaiduRuntime.state);});
             onView(withText("人文")).perform(click());onView(withText("一公里内暂无可显示的景点")).check(matches(isDisplayed()));org.junit.Assert.assertFalse(BaiduRuntime.initialized);screenshot("missing-ak");
+        }
+    }
+    @Test public void amapAndBaiduSwitchWithoutReusingTheOtherProvidersResults(){
+        deps.vendor=MapVendor.AMAP;
+        deps.pois=(center,section,category,refresh,cb)->{
+            MapVendor vendor=deps.vendor;
+            cb.success(new PoiProvider.Result(java.util.Arrays.asList(Attraction.providerPoi(vendor,"same-id",vendor.label+"测试景点","测试地址",30.243,120.153,section,"历史")),System.currentTimeMillis()+300000));return ()->{};
+        };
+        try(ActivityScenario<MainActivity> scenario=ActivityScenario.launch(MainActivity.class)){
+            onView(withText("高德测试景点")).perform(scrollTo()).check(matches(isDisplayed()));
+            onView(withContentDescription("查看高德测试景点")).perform(scrollTo(),click());scenario.recreate();onView(withText("高德周边 / 实时检索")).check(matches(isDisplayed()));Espresso.pressBack();
+            onView(withText("我的")).perform(click());onView(withText("地图与服务使用配置")).perform(scrollTo(),click());
+            deps.vendor=MapVendor.BAIDU;onView(withText("百度地图")).perform(click());onView(withText("知道了")).perform(click());
+            onView(withText("人文")).perform(click());onView(withText("百度测试景点")).perform(scrollTo()).check(matches(isDisplayed()));
+            onView(withText("高德测试景点")).check(androidx.test.espresso.assertion.ViewAssertions.doesNotExist());
+            onView(withText("我的")).perform(click());onView(withText("地图与服务使用配置")).perform(scrollTo(),click());
+            deps.vendor=MapVendor.AMAP;onView(withText("高德地图（默认）")).perform(click());onView(withText("知道了")).perform(click());
+            onView(withText("人文")).perform(click());onView(withText("高德测试景点")).perform(scrollTo()).check(matches(isDisplayed()));screenshot("amap-test-data");
         }
     }
     @Test public void locationFailureHasClearlyLabeledOfflineExamples(){

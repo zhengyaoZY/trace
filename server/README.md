@@ -1,6 +1,6 @@
-# 寻迹后端 0.5.0
+# 寻迹后端 0.6.0
 
-Node.js 24、TypeScript、Fastify 5。无账号、数据库或 Redis。Android 仅发送当前查询坐标，后端调用百度坐标转换与地点检索 3.0，统一过滤、缓存和计算气泡分数。**没有服务端 AK 时进程可启动，但不是线上就绪状态；真实百度数据与权限仍需配置后验证。**
+Node.js 24、TypeScript、Fastify 5。无账号、数据库或 Redis。Android 仅发送当前查询坐标，后端默认调用高德坐标转换与 POI 2.0，并保留百度坐标转换与地点检索 3.0，统一过滤、缓存和计算气泡分数。**没有服务端 AK 时进程可启动，但不是线上就绪状态；真实地图平台数据与权限仍需配置后验证。**
 
 远程发布到阿里云 ACR 的准备、配置、验收及回滚见 [发布文档](deploy/README.md)。当前是否已实际部署，以发布时的验收记录为准。
 
@@ -10,7 +10,7 @@ Node.js 24、TypeScript、Fastify 5。无账号、数据库或 Redis。Android �
 cd server
 npm ci
 cp .env.example .env
-# 在忽略提交的 .env 中安全填写 BAIDU_SERVER_AK
+# 在忽略提交的 .env 中安全填写 AMAP_SERVER_KEY；需要百度时另填 BAIDU_SERVER_AK
 npm run build
 npm start
 ```
@@ -27,18 +27,35 @@ docker compose down
 
 Compose 默认仅暴露 `127.0.0.1:3000`。Android 模拟器访问宿主机时，Debug API 地址为 `http://10.0.2.2:3000`；真机本地联调可在可信局域网内配置 `BIND_ADDRESS=0.0.0.0`，使用电脑的内网 IP，并自行限制防火墙。不要将开发 HTTP 服务直接暴露公网。
 
-`GET /healthz` 仅表示进程正常；`GET /readyz` 表示服务端 AK 是否已配置，**不代表百度鉴权和指标权限已通过**。探针不消耗百度请求、不参与业务限流。未配置 AK：ready 返回 503，业务接口返回 `UPSTREAM_NOT_CONFIGURED`。
+`GET /healthz` 仅表示进程正常；`GET /readyz` 默认检查高德 Web Key 是否已配置；`GET /readyz?provider=baidu` 检查百度 AK 是否已配置，**不代表地图服务商鉴权和指标权限已通过**。探针不消耗百度请求、不参与业务限流。未配置 AK：ready 返回 503，业务接口返回 `UPSTREAM_NOT_CONFIGURED`。
 
 公开部署不在本次范围。部署时需要 HTTPS 网关、域名、服务器出站 IP 和凭据；限流默认不信任转发 IP，避免伪造请求头，代理部署需结合网关限流调整。多副本的内存缓存和限流互不共享，后续再按需求引入共享存储。
 
-## 百度凭据
+## 高德凭据（默认）
+
+- `AMAP_SERVER_KEY`：高德 **Web 服务类型 Key**，启用坐标转换和 POI 搜索 2.0（周边搜索），按控制台要求设置服务器出站 IP、服务范围与配额。
+- Android 另用 **Android 平台 / 3D 地图 SDK Key** `AMAP_MAP_KEY`，绑定包名、签名 SHA-1，只用于底图。两类 Key 不混用。
+- 仅在服务端 `.env` / 部署 Secret 中设置 Web Key；无需 Android 定位 SDK Key。
+- 高德普通 POI 2.0 未声明百度式官方排名与七天热度；返回 `rankingRaw/rank/heat7d/score=null`、`scoreSource=none`，不以 `business.rating`、评论或搜索顺序替代。客户端显示中性点。
+
+## 百度凭据（完整保留）
 
 - `BAIDU_SERVER_AK`：只在后端配置的**服务端／Web 服务类型** AK，开通地点检索 3.0、坐标转换，按百度控制台约束服务器出站 IP、服务范围、配额及授权。
 - Android 的 `BAIDU_MAP_AK` 是另一把绑定包名和签名的客户端 AK，仅用于底图。两者不可混用，服务端 AK 不进入 APK。
 - 密钥通过 `.env`、部署 Secret 或容器环境变量填写；不提交真实值、不在聊天和日志中粘贴。
 - 真实 `ranking`、`d7_hot_value` 是否返回取决于地点数据和账号权限。官方字段缺失时返回 null，不承诺每个景点均有指标，不以评分或评论数替代。
 
-## API 契约
+## 当前 API v2（默认高德）
+
+`POST /api/v2/places/nearby` 使用下方同一请求结构，新增可选 `provider: "amap" | "baidu"`，省略时默认 `amap`。Android 0.6.0 始终明确发送所选服务商。只接受服务商枚举，不接受客户端 URL 或密钥。选择的服务商未配置时返回 503，不会自动调用另一家。
+
+- 高德：`/v3/assistant/coordinate/convert`（GPS → GCJ02），再调用 `/v5/place/around`，半径1000米、按距离、每页20条、最多5页/100条。自然景区类型110000，美食050000，历史110208/110204/140100；分类由后端固定，非运营商官方历史榜单。
+- 返回 `source=amap`、`center/location.coordinateSystem=GCJ02`；其余响应字段与下方一致，排名热度相关值为 null。返回结果在同一坐标系做严格一公里过滤。
+- 显式 `provider=baidu` 使用原百度流程，返回 `source=baidu` 和 BD09；缓存、转换缓存、并发合并按服务商独立，不能混算距离或混用分数。
+- `/readyz` 默认检查高德，`/readyz?provider=amap|baidu` 单独检查；未知服务商返回400。只检查是否填入配置，不发真实鉴权请求。
+- 旧 `/api/v1/places/nearby` **继续默认百度**，供旧 Android 使用；无需同时升级客户端才能保留旧请求行为。
+
+## 百度兼容 API v1 契约（保留）
 
 `POST /api/v1/places/nearby`，`Content-Type: application/json`。定位放在请求体中，不放在 URL。
 

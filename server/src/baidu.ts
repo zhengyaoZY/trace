@@ -2,6 +2,8 @@ import { ApiError, type Point, type Query, type Upstream } from './types.js';
 import { keywords } from './metrics.js';
 export class BaiduUpstream implements Upstream {
   readonly configured: boolean;
+  readonly source='baidu' as const;
+  readonly datum='BD09' as const;
   constructor(private readonly ak: string,private readonly http: typeof fetch=fetch){this.configured=!!ak;}
   private async call(path: string, params: Record<string,string>, signal: AbortSignal): Promise<any> {
     if(!this.configured)throw new ApiError('UPSTREAM_NOT_CONFIGURED',503);

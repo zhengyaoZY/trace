@@ -1,8 +1,9 @@
 import Fastify, { type FastifyError } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
-import { ApiError, type Query } from './types.js';
+import { ApiError, type Query, type Vendor } from './types.js';
 import { NearbyService } from './service.js';
-export async function createApp(service: NearbyService,logging=false){
+export async function createApp(service: NearbyService,logging=false,providers:Partial<Record<Vendor,NearbyService>>={}){
+  const services:Partial<Record<Vendor,NearbyService>>={baidu:service,...providers};
   const app=Fastify({logger:logging?{serializers:{req:r=>({id:r.id,method:r.method}),res:r=>({statusCode:r.statusCode})}}:false,bodyLimit:4096,trustProxy:false,ajv:{customOptions:{removeAdditional:false,coerceTypes:false}}});
   app.addHook('onSend',async(_,reply,payload)=>{reply.header('Cache-Control','no-store');return payload;});
   await app.register(rateLimit,{max:30,timeWindow:60_000,errorResponseBuilder:()=>({statusCode:429,code:'RATE_LIMITED'})});
@@ -19,16 +20,25 @@ export async function createApp(service: NearbyService,logging=false){
     reply.code(failure.status).send({error:{code:failure.code,message:failure.code},requestId:request.id});
   });
   app.get('/healthz',{config:{rateLimit:false}},async()=>({status:'ok'}));
-  app.get('/readyz',{config:{rateLimit:false}},async(_,reply)=>reply.code(service.upstream.configured?200:503).send({ready:service.upstream.configured}));
-  app.post<{Body:Query}>('/api/v1/places/nearby',{
+  app.get<{Querystring:{provider?:string}}>('/readyz',{config:{rateLimit:false}},async(request,reply)=>{
+    const provider=request.query.provider??'amap';
+    if(provider!=='amap'&&provider!=='baidu')return reply.code(400).send({error:{code:'INVALID_PROVIDER'}});
+    const ready=!!services[provider]?.upstream.configured;return reply.code(ready?200:503).send({ready,provider});
+  });
+  function register(path:string,defaultProvider:Vendor){app.post<{Body:Query}>(path,{
     schema:{body:{type:'object',additionalProperties:false,required:['center','section','category'],properties:{
       center:{type:'object',additionalProperties:false,required:['latitude','longitude','coordinateSystem'],properties:{latitude:{type:'number',minimum:-90,maximum:90},longitude:{type:'number',minimum:-180,maximum:180},coordinateSystem:{const:'WGS84'}}},
-      section:{enum:['人文','自然']},category:{enum:['全部','历史','美食','自然景区']},radiusMeters:{const:1000},refresh:{type:'boolean',default:false}
+      provider:{enum:['amap','baidu'],default:defaultProvider},section:{enum:['人文','自然']},category:{enum:['全部','历史','美食','自然景区']},radiusMeters:{const:1000},refresh:{type:'boolean',default:false}
     }}}
   },async(request)=>{
     const q=request.body;
     if((q.section==='人文'&&q.category==='自然景区')||(q.section==='自然'&&!['全部','自然景区'].includes(q.category)))throw new ApiError('INVALID_CATEGORY',400);
-    return service.load(q);
+    const selected=services[q.provider??defaultProvider];
+    if(!selected)throw new ApiError('UPSTREAM_NOT_CONFIGURED',503);
+    return selected.load(q);
   });
+  }
+  register('/api/v1/places/nearby','baidu');
+  register('/api/v2/places/nearby','amap');
   return app;
 }

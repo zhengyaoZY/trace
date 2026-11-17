@@ -4,12 +4,13 @@ public final class Attraction {
     public final String id, name, subtitle, introduction, narration;
     public final double latitude, longitude;
     public final boolean online,bd09;
+    public final String provider,coordinateSystem;
     public final Metrics metrics;
     static final class Metrics {
         final Double score,heat7d;final String scoreSource,rankingRaw,rankBoard;final Integer rank;
         Metrics(Double score,String scoreSource,Double heat7d,String rankingRaw,String rankBoard,Integer rank){this.score=score;this.scoreSource=scoreSource;this.heat7d=heat7d;this.rankingRaw=rankingRaw;this.rankBoard=rankBoard;this.rank=rank;}
     }
-    Attraction withMetrics(Metrics metrics){return new Attraction(id,name,subtitle,introduction,narration,latitude,longitude,section,category,manager,source,waypoints,online,metrics);}
+    Attraction withMetrics(Metrics metrics){return new Attraction(id,name,subtitle,introduction,narration,latitude,longitude,section,category,manager,source,waypoints,online,metrics,provider);}
     public final String section, category, manager, source;
     public final java.util.List<Waypoint> waypoints;
     public static final class Waypoint {
@@ -33,15 +34,23 @@ public final class Attraction {
     }
     private Attraction(String id,String name,String subtitle,String introduction,String narration,double latitude,double longitude,
             String section,String category,String manager,String source,java.util.List<Waypoint> waypoints,boolean online,Metrics metrics){
-        this.metrics=metrics;
-        this.online=online;this.bd09=online;
+        this(id,name,subtitle,introduction,narration,latitude,longitude,section,category,manager,source,waypoints,online,metrics,online?"baidu":"local");
+    }
+    private Attraction(String id,String name,String subtitle,String introduction,String narration,double latitude,double longitude,
+            String section,String category,String manager,String source,java.util.List<Waypoint> waypoints,boolean online,Metrics metrics,String provider){
+        this.metrics=metrics;this.provider=provider;
+        this.coordinateSystem=online?MapVendor.from(provider).datum:"WGS84";
+        this.online=online;this.bd09="BD09".equals(coordinateSystem);
         this.id=id;this.name=name;this.subtitle=subtitle;this.introduction=introduction;this.narration=narration;
         this.latitude=latitude;this.longitude=longitude;this.section=section;this.category=category;
         this.manager=manager;this.source=source;this.waypoints=java.util.Collections.unmodifiableList(waypoints);
     }
     static Attraction poi(String uid,String name,String address,String tag,double lat,double lon,String section,String category){
+        return providerPoi(MapVendor.BAIDU,uid,name,address,lat,lon,section,category);
+    }
+    static Attraction providerPoi(MapVendor vendor,String uid,String name,String address,double lat,double lon,String section,String category){
         String description=address==null||address.isEmpty()?"地址暂缺":address;
-        return new Attraction("baidu:"+uid,name,description,description,"暂无介绍",lat,lon,section,category,"","百度地图 POI",java.util.Collections.emptyList(),true);
+        return new Attraction(vendor.id+":"+uid,name,description,description,"暂无介绍",lat,lon,section,category,"",vendor.label+"地图 POI",java.util.Collections.emptyList(),true,null,vendor.id);
     }
     public boolean isRoute(){return !waypoints.isEmpty();}
     public double distanceKm(){double total=0;for(int i=1;i<waypoints.size();i++){Waypoint a=waypoints.get(i-1),b=waypoints.get(i);total+=ExploreState.distanceKm(a.latitude,a.longitude,b.latitude,b.longitude);}return total;}

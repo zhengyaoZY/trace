@@ -20,7 +20,8 @@ public class MainActivity extends Activity {
     private final ExploreState location=new ExploreState();
     private final String[] categories={"全部","全部"},selectedIds={null,null};
     private final double[] cameraLat={Double.NaN,Double.NaN},cameraLon={0,0},cameraZoom={12,12};
-    private final boolean[] cameraBd={false,false};
+    private final String[] cameraDatum={"WGS84","WGS84"};
+    private MapVendor vendor;
     private final int[] listOffsets={0,0};
     private ScrollView contentList;
     private LinearLayout cards;
@@ -33,6 +34,7 @@ public class MainActivity extends Activity {
         java.util.function.Function<android.content.Context,MapSurface> maps;
         PoiProvider pois;
         boolean consent=true,online=true;
+        MapVendor vendor=MapVendor.BAIDU;
         final PoiRepository.Cache cache=new PoiRepository.Cache();
     }
     static TestDependencies tests;
@@ -50,6 +52,7 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
+        vendor=tests!=null?tests.vendor:MapVendor.from(getPreferences(MODE_PRIVATE).getString("mapProvider","amap"));
         root=column();root.setBackgroundColor(BACKGROUND);
         root.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
         toolbar=row();toolbar.setGravity(Gravity.CENTER_VERTICAL);toolbar.setPadding(dp(22),dp(12),dp(22),dp(12));
@@ -65,12 +68,12 @@ public class MainActivity extends Activity {
             location.status=ExploreState.Status.valueOf(state.getString("locationStatus","IDLE"));
             if(location.status==ExploreState.Status.REQUESTING)location.status=ExploreState.Status.IDLE;
             location.latitude=state.getDouble("fixLat",30.24);location.longitude=state.getDouble("fixLon",120.15);location.approximate=state.getBoolean("approximate");location.sampleRegion=state.getBoolean("sampleRegion",true);fixTime=state.getLong("fixTime");
-            for(int i=0;i<2;i++){categories[i]=state.getString("category"+i,"全部");selectedIds[i]=state.getString("selected"+i);cameraLat[i]=state.getDouble("lat"+i,Double.NaN);cameraLon[i]=state.getDouble("lon"+i);cameraZoom[i]=state.getDouble("zoom"+i,15);cameraBd[i]=state.getBoolean("bd"+i);listOffsets[i]=state.getInt("offset"+i);}
+            for(int i=0;i<2;i++){categories[i]=state.getString("category"+i,"全部");selectedIds[i]=state.getString("selected"+i);cameraLat[i]=state.getDouble("lat"+i,Double.NaN);cameraLon[i]=state.getDouble("lon"+i);cameraZoom[i]=state.getDouble("zoom"+i,15);cameraDatum[i]=state.getString("datum"+i,state.getBoolean("bd"+i)?"BD09":"WGS84");listOffsets[i]=state.getInt("offset"+i);}
         }
-        if(state!=null&&state.getBoolean("detailOnline"))detail=Attraction.poi(state.getString("detailUid"),state.getString("detailName"),state.getString("detailAddress"),"",state.getDouble("detailLat"),state.getDouble("detailLon"),state.getString("detailSection"),state.getString("detailCategory"));
+        if(state!=null&&state.getBoolean("detailOnline"))detail=Attraction.providerPoi(MapVendor.from(state.getString("detailProvider","baidu")),state.getString("detailUid"),state.getString("detailName"),state.getString("detailAddress"),state.getDouble("detailLat"),state.getDouble("detailLon"),state.getString("detailSection"),state.getString("detailCategory"));
         if(detail!=null&&state!=null&&state.getBoolean("detailMetrics"))detail=detail.withMetrics(new Attraction.Metrics(state.getBoolean("detailHasScore")?state.getDouble("detailScore"):null,state.getString("detailScoreSource","none"),state.getBoolean("detailHasHeat")?state.getDouble("detailHeat"):null,state.getString("detailRanking"),state.getString("detailBoard"),state.getBoolean("detailHasRank")?state.getInt("detailRank"):null));
         source=tests!=null&&tests.location!=null?tests.location.get():new DeviceLocationSource(this);
-        repository=new PoiRepository(tests!=null&&tests.pois!=null?tests.pois:new HttpPoiProvider(),System::currentTimeMillis,tests!=null?tests.cache:processCache);
+        createRepository();
         BaiduRuntime.observe(sdkChanged);
         render();
     }
@@ -102,7 +105,7 @@ public class MainActivity extends Activity {
     }
     private void saveViewport(){
         if(tab<2&&detailId==null){
-            if(map!=null){MapSurface.Camera c=map.snapshot();cameraLat[tab]=Float.isNaN(c.zoom)?Double.NaN:c.point.latitude;cameraLon[tab]=c.point.longitude;cameraBd[tab]=c.point.bd09;cameraZoom[tab]=c.zoom;}
+            if(map!=null){MapSurface.Camera c=map.snapshot();cameraLat[tab]=Float.isNaN(c.zoom)?Double.NaN:c.point.latitude;cameraLon[tab]=c.point.longitude;cameraDatum[tab]=c.point.coordinateSystem;cameraZoom[tab]=c.zoom;}
             if(contentList!=null)listOffsets[tab]=contentList.getScrollY();
         }
     }
@@ -126,7 +129,7 @@ public class MainActivity extends Activity {
         prepareSearch(gps);
         java.util.List<Attraction> entries=entries();
         if(Double.isNaN(cameraLat[tab]))map.fitRadius(gps,PoiRepository.RADIUS_METERS);
-        else map.camera(new MapPoint(cameraLat[tab],cameraLon[tab],cameraBd[tab]),(float)cameraZoom[tab]);
+        else map.camera(new MapPoint(cameraLat[tab],cameraLon[tab],cameraDatum[tab]),(float)cameraZoom[tab]);
         map.features(entries,this::selectContent);
         if(location.status==ExploreState.Status.READY)map.currentPosition(MapPoint.gps(location.latitude,location.longitude));
         LinearLayout.LayoutParams frame=new LinearLayout.LayoutParams(-1,0,1);frame.setMargins(dp(14),0,dp(14),0);body.addView(map.view(),frame);addCredit(body);
@@ -139,36 +142,39 @@ public class MainActivity extends Activity {
         }
         for(int i=0;i<entries.size();i++){
             Attraction a=entries.get(i);LinearLayout card=column();card.setPadding(dp(14),dp(12),dp(14),dp(12));card.setBackground(rounded(Color.WHITE,18));
-            eyebrow(card,a.category+(a.online?" · 百度周边":" · 本地示例"));title(card,a.name,19);caption(card,a.subtitle,13);
+            eyebrow(card,a.category+(a.online?" · "+MapVendor.from(a.provider).label+"周边":" · 本地示例"));title(card,a.name,19);caption(card,a.subtitle,13);
             if(a.metrics!=null){
                 String metrics=a.metrics.score==null?"暂无可用官方指标 · 中性圆点":String.format(java.util.Locale.CHINA,"本应用综合指数 %.2f · %s",a.metrics.score,metricLabel(a.metrics.scoreSource));
                 caption(card,metrics,11);
             }
             if(a.isRoute())caption(card,String.format(java.util.Locale.CHINA,"示例路线 · 非导航  /  折线估算 %.1f km",a.distanceKm()),11);
             Button view=button("查看详情  ↗",false);view.setContentDescription("查看"+a.name);card.addView(view);view.setOnClickListener(v->open(a));
-            card.setOnClickListener(v->{selectContent(a.id);map.camera(new MapPoint(a.latitude,a.longitude,a.bd09),null);});
+            card.setOnClickListener(v->{selectContent(a.id);map.camera(new MapPoint(a.latitude,a.longitude,a.coordinateSystem),null);});
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(12);cards.addView(card,p);cardViews.put(a.id,card);
         }
         updateSelection();final ScrollView list=contentList;final int offset=listOffsets[tab];list.post(()->list.scrollTo(0,offset));map.resume();
     }
     void selectContent(String id){selectedIds[tab]=id;updateSelection();LinearLayout card=cardViews.get(id);if(card!=null&&contentList!=null)contentList.smoothScrollTo(0,card.getTop());}
     private void updateSelection(){for(java.util.Map.Entry<String,LinearLayout> e:cardViews.entrySet()){GradientDrawable bg=rounded(Color.WHITE,18);boolean selected=e.getKey().equals(selectedIds[tab]);if(selected)bg.setStroke(dp(2),TEAL);e.getValue().setBackground(bg);e.getValue().setSelected(selected);}if(map!=null&&tab<2&&detailId==null)map.selected(selectedIds[tab]);}
-    private boolean privacyGranted(){return tests!=null?tests.consent:getPreferences(MODE_PRIVATE).getInt("privacyVersion",0)>=2;}
+    private boolean privacyGranted(){return tests!=null?tests.consent:getPreferences(MODE_PRIVATE).getInt("privacyVersion_"+vendor.id,0)>=3;}
     private boolean dataConfigured(){return tests!=null?tests.online&&tests.consent:privacyGranted()&&HttpPoiProvider.allowed(BuildConfig.API_BASE_URL);}
     private MapSurface newMap(){
         if(tests!=null&&tests.maps!=null)return tests.maps.apply(this);
-        if(privacyGranted()&&BaiduRuntime.initialized)return new BaiduMapSurface(this);
-        return new UnavailableMapSurface(this,privacyGranted()?BaiduRuntime.message():"百度地图尚未启用\n可阅读文档与本地示例文本");
+        if(privacyGranted()){
+            if(vendor==MapVendor.AMAP&&AmapRuntime.initialized)return new AmapMapSurface(this);
+            if(vendor==MapVendor.BAIDU&&BaiduRuntime.initialized)return new BaiduMapSurface(this);
+        }
+        return new UnavailableMapSurface(this,privacyGranted()?runtimeMessage():vendor.label+"地图尚未启用\n可阅读文档与本地示例文本");
     }
     private void addCredit(LinearLayout parent){
         TextView credit=text(dataConfigured()?"景点服务 · 1 公里周边 · 大小为本应用综合指数":"景点服务未就绪 · 示例与真实检索明确区分",10,false);credit.setTextColor(MUTED);credit.setPadding(dp(18),dp(5),dp(18),dp(5));parent.addView(credit);
-        if(tests==null&&BaiduRuntime.initialized&&BaiduRuntime.state!=BaiduRuntime.State.READY)caption(parent,BaiduRuntime.message(),12);
+        if(tests==null&&vendor==MapVendor.BAIDU&&BaiduRuntime.initialized&&BaiduRuntime.state!=BaiduRuntime.State.READY)caption(parent,BaiduRuntime.message(),12);
     }
     private String section(){return tab==0?"人文":"自然";}
     private void prepareSearch(MapPoint gps){
         if(!dataConfigured()||location.sampleRegion||location.status!=ExploreState.Status.READY||categories[tab].endsWith("路线")){loading=false;return;}
         MapPoint center=gps;
-        final String key=String.format(java.util.Locale.ROOT,"%.6f/%.6f/%s/%s",center.latitude,center.longitude,section(),categories[tab]);
+        final String key=vendor.id+"/"+String.format(java.util.Locale.ROOT,"%.6f/%.6f/%s/%s",center.latitude,center.longitude,section(),categories[tab]);
         if(key.equals(queryKey))return;
         queryKey=key;final long generation=++queryGeneration;loading=true;poiFailure=null;liveEntries=java.util.Collections.emptyList();boolean refresh=forceNext;forceNext=false;
         repository.load(center,section(),categories[tab],refresh,new PoiProvider.Callback(){
@@ -185,10 +191,11 @@ public class MainActivity extends Activity {
     }
     private void consentDialog(){
         privacyPrompted=true;
-        android.text.Spanned text=android.text.Html.fromHtml("启用百度地图后，地图 SDK 会处理必要设备信息；位置将发送至寻迹后端并转发百度，用于一公里周边查询。后端仅作短时内存缓存，不保存定位轨迹。<br/><br/><a href=\"https://lbs.baidu.com/index.php?title=openprivacy\">百度地图开放平台隐私政策</a><br/><br/>定位权限另行申请。暂不使用仍可阅读文档与本地示例。",android.text.Html.FROM_HTML_MODE_LEGACY);
+        String policy=vendor==MapVendor.AMAP?"https://lbs.amap.com/pages/privacy/":"https://lbs.baidu.com/index.php?title=openprivacy";
+        android.text.Spanned text=android.text.Html.fromHtml("启用"+vendor.label+"地图后，地图 SDK 会处理必要设备信息；位置将发送至寻迹后端并转发"+vendor.label+"，用于一公里周边查询。后端仅作短时内存缓存，不保存定位轨迹。<br/><br/><a href=\""+policy+"\">"+vendor.label+"地图开放平台隐私政策</a><br/><br/>定位权限另行申请。暂不使用仍可阅读文档与本地示例。",android.text.Html.FROM_HTML_MODE_LEGACY);
         android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this).setTitle("地图与周边服务使用说明").setMessage(text).setCancelable(false)
-            .setPositiveButton("同意并使用地图",(d,w)->{if(tests!=null)tests.consent=true;else{getPreferences(MODE_PRIVATE).edit().putInt("privacyVersion",2).putInt("privacyChoiceVersion",2).apply();BaiduRuntime.start(this);}queryKey="";render();ensureLocation(false);})
-            .setNegativeButton("暂不使用",(d,w)->{if(tests!=null)tests.consent=false;else getPreferences(MODE_PRIVATE).edit().putInt("privacyChoiceVersion",2).apply();location.sampleRegion=true;render();}).create();
+            .setPositiveButton("同意并使用地图",(d,w)->{if(tests!=null)tests.consent=true;else{getPreferences(MODE_PRIVATE).edit().putInt("privacyVersion_"+vendor.id,3).putInt("privacyChoiceVersion_"+vendor.id,3).apply();startRuntime();}queryKey="";render();ensureLocation(false);})
+            .setNegativeButton("暂不使用",(d,w)->{if(tests!=null)tests.consent=false;else getPreferences(MODE_PRIVATE).edit().putInt("privacyChoiceVersion_"+vendor.id,3).apply();location.sampleRegion=true;render();}).create();
         dialog.show();android.widget.TextView message=dialog.findViewById(android.R.id.message);if(message!=null)message.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
     }
     private void showDetail(Attraction a){
@@ -202,29 +209,50 @@ public class MainActivity extends Activity {
         }else if(!a.online){
         int index=Attraction.SAMPLES.indexOf(a)%3;TraceArt art=new TraceArt(this,index);art.setBackground(rounded(PALE,22));art.setClipToOutline(true);c.addView(art,new LinearLayout.LayoutParams(-1,dp(175)));
         }
-        space(c,20);eyebrow(c,a.online?"百度周边 / 实时检索":"杭州示例 / 本地内容");title(c,a.subtitle,24);if(!a.introduction.equals(a.subtitle))caption(c,a.introduction,16);
+        space(c,20);eyebrow(c,a.online?MapVendor.from(a.provider).label+"周边 / 实时检索":"杭州示例 / 本地内容");title(c,a.subtitle,24);if(!a.introduction.equals(a.subtitle))caption(c,a.introduction,16);
         space(c,22);LinearLayout article=column();article.setPadding(dp(18),dp(20),dp(18),dp(20));article.setBackground(rounded(Color.WHITE,22));
         eyebrow(article,"READ THE CITY");title(article,a.online?"地点介绍":"文字讲解",20);TextView narration=caption(article,a.narration,17);narration.setTextColor(INK);narration.setLineSpacing(dp(7),1);narration.setTextIsSelectable(true);c.addView(article);
         if(a.metrics!=null){
             space(c,12);title(c,"官方指标与综合指数",18);
             caption(c,a.metrics.rankingRaw==null?"官方排名：暂无":("官方排名原文："+a.metrics.rankingRaw),14);
             caption(c,a.metrics.heat7d==null?"近七天热度：暂无":("近七天热度："+a.metrics.heat7d),14);
-            caption(c,a.metrics.score==null?"无可用指标，使用中性点":String.format(java.util.Locale.CHINA,"本应用综合指数：%.2f（非百度官方总榜）",a.metrics.score),14);
+            caption(c,a.metrics.score==null?"无可用指标，使用中性点":String.format(java.util.Locale.CHINA,"本应用综合指数：%.2f（非地图服务商官方总榜）",a.metrics.score),14);
         }
         if(!a.manager.isEmpty()){
             space(c,18);title(c,"管理与来源",18);caption(c,a.manager,14);TextView link=caption(c,a.source,13);android.text.util.Linkify.addLinks(link,android.text.util.Linkify.WEB_URLS);link.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         }
-        space(c,12);caption(c,a.online?"来源：寻迹后端 / 百度 POI · 综合指数由本应用计算":"杭州内置示例 · 内容不随位置自动更新",12);
+        space(c,12);caption(c,a.online?"来源：寻迹后端 / "+MapVendor.from(a.provider).label+" POI · 综合指数由本应用计算":"杭州内置示例 · 内容不随位置自动更新",12);
+    }
+    private void createRepository(){
+        repository=new PoiRepository(tests!=null&&tests.pois!=null?tests.pois:new HttpPoiProvider(BuildConfig.API_BASE_URL,vendor),System::currentTimeMillis,tests!=null?tests.cache:processCache,vendor.id);
+    }
+    private void startRuntime(){if(vendor==MapVendor.AMAP)AmapRuntime.start(this);else BaiduRuntime.start(this);}
+    private String runtimeMessage(){return vendor==MapVendor.AMAP?AmapRuntime.message():BaiduRuntime.message();}
+    private void providerDialog(){
+        new android.app.AlertDialog.Builder(this).setTitle("选择地图与周边服务")
+            .setSingleChoiceItems(new String[]{"高德地图（默认）","百度地图"},vendor==MapVendor.AMAP?0:1,(dialog,which)->{
+                dialog.dismiss();MapVendor next=which==0?MapVendor.AMAP:MapVendor.BAIDU;
+                if(next!=vendor){
+                    repository.cancel();++queryGeneration;stopLocation();disposeMap();vendor=next;
+                    getPreferences(MODE_PRIVATE).edit().putString("mapProvider",vendor.id).apply();
+                    queryKey="";loading=false;forceNext=false;poiFailure=null;liveEntries=java.util.Collections.emptyList();detail=null;detailId=null;
+                    for(int i=0;i<2;i++){cameraLat[i]=Double.NaN;cameraDatum[i]="WGS84";selectedIds[i]=null;listOffsets[i]=0;}
+                    createRepository();privacyPrompted=false;location.sampleRegion=true;
+                }
+                if(!privacyGranted())consentDialog();
+                else{if(tests==null)startRuntime();render();new android.app.AlertDialog.Builder(this).setTitle(vendor.label+"地图配置").setMessage(tests!=null?"测试数据，非在线验证":runtimeMessage()+"\nAndroid Key 需绑定包名和签名 SHA-1；配置步骤见仓库 Android 文档。").setPositiveButton("知道了",null).show();}
+            }).setNegativeButton("取消",null).show();
     }
     private void showProfile(){
         LinearLayout c=scrollContent();eyebrow(c,"TRACE / DOCUMENTATION");title(c,"应用说明",28);caption(c,"认识寻迹，开始你的城市探索。",15);
         document(c,"使用指南","人文与自然首页以当前位置为中心展示地图。横向切换分类，地图标记与卡片同步筛选。轻点标记选中卡片，点击查看详情阅读内容。◎ 定位可回到当前位置。点击卡片空白处可在地图中聚焦。");
         document(c,"分类说明","人文包含历史、美食；自然包含自然景区、自驾路线、徒步路线。路线是静态示意，不是实测轨迹或导航，折线距离不代表真实行程距离。");
-        Button enable=button("地图与服务使用配置",false);c.addView(enable);enable.setOnClickListener(v->{if(!privacyGranted())consentDialog();else new android.app.AlertDialog.Builder(this).setTitle("百度地图配置").setMessage(tests!=null?"测试数据，非在线验证":BaiduRuntime.message()+"\n配置步骤见仓库 Android 文档。Android AK 必须绑定包名及 APK 签名 SHA-1。定位授权并不等同于 SDK 使用同意。").setPositiveButton("知道了",null).show();});
-        document(c,"定位与隐私","只申请前台定位。升级后需重新同意位置用途：位置发送至寻迹后端并转发百度，用于周边检索；后端短时内存缓存，不保存轨迹，不记录坐标、请求体或 AK。百度地图 SDK 另会按其隐私政策处理地图和必要设备信息。未同意前不初始化 SDK、不请求定位和后端；无账号。");
-        document(c,"周边与综合指数","固定以手机为中心检索半径 1000 米，拖动地图不改变查询范围。后端统一去重、分页、缓存和计算。官方排名与七天热度各占一半，只有一项时使用该项，均缺失时显示中性小点；评分、评论量和搜索顺序不替代官方指标。大小是本应用综合计算，并非百度官方总榜。不同榜单名次不直接混算，未知排名格式不参与评分。");
-        document(c,"示例与服务状态","自驾和徒步仍为本地静态示意，非导航；按起点是否在一公里内筛选。本地示例不伪装真实结果。百度 Android AK 仅用于底图，后端使用独立服务端 AK；两者状态分别显示。缺少配置时仅可浏览文档和本地示例，真实鉴权、坐标及指标需要配置后验收。网络、服务配置、配额和限流均明确提示，不自动扩大范围。");
-        document(c,"版本信息","寻迹 Android 0.5.0（5）\n周边：寻迹后端 → 百度 Web API 3.0。底图：百度 Map SDK 9.0.0。未部署公网、未完成真实 AK 验收的接入预览版本。");
+        Button enable=button("地图与服务使用配置",false);c.addView(enable);enable.setOnClickListener(v->providerDialog());
+        caption(c,"当前地图："+vendor.label+"（默认高德）",14);
+        document(c,"定位与隐私","只申请前台定位。升级后需重新同意位置用途：位置发送至寻迹后端并转发所选地图服务商，用于周边检索；后端短时内存缓存，不保存轨迹，不记录坐标、请求体或 AK。所选地图 SDK 另会按其隐私政策处理地图和必要设备信息。未同意前不初始化 SDK、不请求定位和后端；无账号。");
+        document(c,"周边与综合指数","固定以手机为中心检索半径 1000 米，拖动地图不改变查询范围。后端统一去重、分页、缓存和计算。官方排名与七天热度各占一半，只有一项时使用该项，均缺失时显示中性小点；高德 POI 2.0 未提供相同官方排名和七天热度，当前显示中性小点；百度有指标时按指数显示大小。评分、评论量和搜索顺序不替代官方指标。大小是本应用综合计算，并非地图服务商官方总榜。不同榜单名次不直接混算，未知排名格式不参与评分。");
+        document(c,"示例与服务状态","自驾和徒步仍为本地静态示意，非导航；按起点是否在一公里内筛选。本地示例不伪装真实结果。高德默认启用，百度保留可切换。Android 地图 Key 仅用于底图，后端使用各自独立的 Web 服务 Key；两者状态分别显示。缺少配置时仅可浏览文档和本地示例，真实鉴权、坐标及指标需要配置后验收。网络、服务配置、配额和限流均明确提示，不自动扩大范围。");
+        document(c,"版本信息","寻迹 Android 0.6.0（6）\n默认：高德 3D SDK 10.0.600 / POI 2.0。保留：百度 Map SDK 9.0.0 / Web API 3.0。未部署公网、未完成真实 AK 验收的接入预览版本。");
     }
     private String metricLabel(String source){switch(source){case "rank_heat":return "官方排名＋七天热度";case "rank":return "官方排名";case "heat":return "七天热度";default:return "暂无指标";}}
     private void document(LinearLayout c,String title,String description){space(c,16);LinearLayout panel=column();panel.setPadding(dp(16),dp(10),dp(16),dp(16));panel.setBackground(rounded(Color.WHITE,20));title(panel,title,18);caption(panel,description,15);c.addView(panel);}
@@ -248,10 +276,10 @@ public class MainActivity extends Activity {
     }
     private void stopLocation(){locationGeneration++;if(source!=null)source.cancel();if(location.status==ExploreState.Status.REQUESTING)location.status=ExploreState.Status.IDLE;}
     @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(code!=73)return;location.status=ExploreState.Status.IDLE;if(tab==2)return;if(permitted())ensureLocation(false);else{location.fail(ExploreState.Status.DENIED);render();}}
-    @Override protected void onStart(){super.onStart();if(privacyGranted()){if(tests==null)BaiduRuntime.start(this);if(tab<2){ensureLocation(false);if(detailId==null)render();}}else if(!privacyPrompted&&(tests!=null||getPreferences(MODE_PRIVATE).getInt("privacyChoiceVersion",0)<2))consentDialog();}
+    @Override protected void onStart(){super.onStart();if(privacyGranted()){if(tests==null)startRuntime();if(tab<2){ensureLocation(false);if(detailId==null)render();}}else if(!privacyPrompted&&(tests!=null||getPreferences(MODE_PRIVATE).getInt("privacyChoiceVersion_"+vendor.id,0)<3))consentDialog();}
     @Override protected void onStop(){saveViewport();repository.cancel();queryKey="";stopLocation();super.onStop();}
     @Override public void onBackPressed(){if(detailId!=null){returnToExplore();}else if(tab!=0){tab=0;cameraLat[0]=Double.NaN;render();ensureLocation(false);}else super.onBackPressed();}
-    @Override protected void onSaveInstanceState(Bundle s){saveViewport();if(detail!=null&&detail.online){s.putBoolean("detailOnline",true);s.putString("detailUid",detail.id.substring(6));s.putString("detailName",detail.name);s.putString("detailAddress",detail.subtitle);s.putDouble("detailLat",detail.latitude);s.putDouble("detailLon",detail.longitude);s.putString("detailSection",detail.section);s.putString("detailCategory",detail.category);if(detail.metrics!=null){Attraction.Metrics m=detail.metrics;s.putBoolean("detailMetrics",true);s.putBoolean("detailHasScore",m.score!=null);if(m.score!=null)s.putDouble("detailScore",m.score);s.putString("detailScoreSource",m.scoreSource);s.putBoolean("detailHasHeat",m.heat7d!=null);if(m.heat7d!=null)s.putDouble("detailHeat",m.heat7d);s.putString("detailRanking",m.rankingRaw);s.putString("detailBoard",m.rankBoard);s.putBoolean("detailHasRank",m.rank!=null);if(m.rank!=null)s.putInt("detailRank",m.rank);}}s.putString("locationStatus",location.status.name());s.putDouble("fixLat",location.latitude);s.putDouble("fixLon",location.longitude);s.putBoolean("approximate",location.approximate);s.putBoolean("sampleRegion",location.sampleRegion);s.putLong("fixTime",fixTime);s.putInt("tab",tab);s.putString("detail",detailId);for(int i=0;i<2;i++){s.putString("category"+i,categories[i]);s.putString("selected"+i,selectedIds[i]);s.putDouble("lat"+i,cameraLat[i]);s.putDouble("lon"+i,cameraLon[i]);s.putDouble("zoom"+i,cameraZoom[i]);s.putBoolean("bd"+i,cameraBd[i]);s.putInt("offset"+i,listOffsets[i]);}super.onSaveInstanceState(s);}
+    @Override protected void onSaveInstanceState(Bundle s){saveViewport();if(detail!=null&&detail.online){s.putBoolean("detailOnline",true);s.putString("detailProvider",detail.provider);s.putString("detailUid",detail.id.substring(detail.id.indexOf(':')+1));s.putString("detailName",detail.name);s.putString("detailAddress",detail.subtitle);s.putDouble("detailLat",detail.latitude);s.putDouble("detailLon",detail.longitude);s.putString("detailSection",detail.section);s.putString("detailCategory",detail.category);if(detail.metrics!=null){Attraction.Metrics m=detail.metrics;s.putBoolean("detailMetrics",true);s.putBoolean("detailHasScore",m.score!=null);if(m.score!=null)s.putDouble("detailScore",m.score);s.putString("detailScoreSource",m.scoreSource);s.putBoolean("detailHasHeat",m.heat7d!=null);if(m.heat7d!=null)s.putDouble("detailHeat",m.heat7d);s.putString("detailRanking",m.rankingRaw);s.putString("detailBoard",m.rankBoard);s.putBoolean("detailHasRank",m.rank!=null);if(m.rank!=null)s.putInt("detailRank",m.rank);}}s.putString("locationStatus",location.status.name());s.putDouble("fixLat",location.latitude);s.putDouble("fixLon",location.longitude);s.putBoolean("approximate",location.approximate);s.putBoolean("sampleRegion",location.sampleRegion);s.putLong("fixTime",fixTime);s.putInt("tab",tab);s.putString("detail",detailId);for(int i=0;i<2;i++){s.putString("category"+i,categories[i]);s.putString("selected"+i,selectedIds[i]);s.putDouble("lat"+i,cameraLat[i]);s.putDouble("lon"+i,cameraLon[i]);s.putDouble("zoom"+i,cameraZoom[i]);s.putString("datum"+i,cameraDatum[i]);s.putInt("offset"+i,listOffsets[i]);}super.onSaveInstanceState(s);}
     @Override protected void onResume(){super.onResume();if(map!=null)map.resume();}
     @Override protected void onPause(){if(map!=null)map.pause();super.onPause();}
     @Override protected void onDestroy(){BaiduRuntime.remove(sdkChanged);repository.cancel();stopLocation();disposeMap();super.onDestroy();}

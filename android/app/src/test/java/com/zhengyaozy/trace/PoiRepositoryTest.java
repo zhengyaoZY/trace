@@ -44,6 +44,22 @@ public class PoiRepositoryTest {
         try{new PoiRepository(new Provider(),()->0).load(new MapPoint(30,120,true),"人文","全部",false,new Result());fail();}catch(IllegalArgumentException expected){}
         AtomicInteger conversions=new AtomicInteger();MapPoint gps=MapPoint.gps(30,120);MapPoint b=gps.toBd09(p->{conversions.incrementAndGet();return new MapPoint(30.006,120.006,true);});assertSame(b,b.toBd09(p->{throw new AssertionError();}));assertEquals(1,conversions.get());
     }
+    @Test public void amapIsDefaultAndProviderCoordinatesCannotBeReconverted(){
+        assertEquals(MapVendor.AMAP,MapVendor.from(null));assertEquals(MapVendor.BAIDU,MapVendor.from("baidu"));
+        MapPoint gcj=MapPoint.gps(30,120).toGcj02(p->new MapPoint(30.003,120.003,"GCJ02"));
+        assertSame(gcj,gcj.toGcj02(p->{throw new AssertionError();}));
+        try{gcj.toBd09(p->{throw new AssertionError();});fail();}catch(IllegalArgumentException expected){}
+        try{new MapPoint(30,120,true).toGcj02(p->{throw new AssertionError();});fail();}catch(IllegalArgumentException expected){}
+        try{new PoiRepository(new Provider(),()->0).load(gcj,"人文","全部",false,new Result());fail();}catch(IllegalArgumentException expected){}
+        Attraction a=Attraction.providerPoi(MapVendor.AMAP,"a","a","地址",30,120,"人文","历史").withMetrics(new Attraction.Metrics(null,"none",null,null,null,null));
+        assertEquals("GCJ02",a.coordinateSystem);assertEquals("amap:a",a.id);assertFalse(a.bd09);assertEquals(1,PoiRepository.filter(Arrays.asList(a)).size());
+    }
+    @Test public void sharedCacheIsIsolatedByProvider(){
+        PoiRepository.Cache cache=new PoiRepository.Cache();Provider a=new Provider(),b=new Provider();
+        new PoiRepository(a,()->0,cache,"amap").load(center,"人文","全部",false,new Result());a.callbacks.get(0).success(new PoiProvider.Result(Arrays.asList(Attraction.providerPoi(MapVendor.AMAP,"a","a","",30,120,"人文","历史")),100));
+        new PoiRepository(b,()->0,cache,"baidu").load(center,"人文","全部",false,new Result());assertEquals(1,b.calls);
+        Result cached=new Result();new PoiRepository(a,()->0,cache,"amap").load(center,"人文","全部",false,cached);assertEquals(1,a.calls);assertEquals("amap:a",cached.places.get(0).id);
+    }
     @Test public void bubbleAreaIsMonotonicAndMissingIsNeutral(){
         assertEquals(14,MarkerStyle.diameterDp(null),.001);assertEquals(14,MarkerStyle.diameterDp(0d),.001);assertEquals(40,MarkerStyle.diameterDp(1d),.001);
         float previous=0;for(int i=0;i<=100;i++){float d=MarkerStyle.diameterDp(i/100d);assertTrue(d>=previous);assertTrue(d<=44);previous=d;}

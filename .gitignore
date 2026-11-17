@@ -16,3 +16,6 @@ dist/
 .env.*
 !.env.example
 api.properties
+
+# Private AMap Android key
+android/amap.properties

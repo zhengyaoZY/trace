@@ -2,7 +2,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 test_status=0
-./gradlew connectedDebugAndroidTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true || test_status=$?
+./gradlew -PtraceAbis=x86_64 connectedDebugAndroidTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true || test_status=$?
 mkdir -p app/build/reports/androidTests/screenshots
 artifact_status=0
 adb pull /sdcard/Android/data/com.zhengyaozy.trace/files/screenshots/. app/build/reports/androidTests/screenshots/ || artifact_status=$?
