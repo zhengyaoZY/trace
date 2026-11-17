@@ -7,11 +7,11 @@ import java.util.List;
 final class ExploreState {
     enum Status { IDLE, REQUESTING, READY, DENIED, DISABLED, TIMEOUT, UNAVAILABLE }
     Status status=Status.IDLE;
-    double latitude=30.25,longitude=120.15;
+    double latitude=30.24,longitude=120.15;
     boolean approximate, sampleRegion;
     void ready(double lat,double lon,boolean approximate){status=Status.READY;latitude=lat;longitude=lon;this.approximate=approximate;sampleRegion=false;}
     void fail(Status reason){status=reason;sampleRegion=true;}
-    double centerLatitude(){return sampleRegion?30.25:latitude;}
+    double centerLatitude(){return sampleRegion?30.24:latitude;}
     double centerLongitude(){return sampleRegion?120.15:longitude;}
     String label(){
         if(sampleRegion){
@@ -33,7 +33,7 @@ final class ExploreState {
         if(!sampleRegion&&status!=Status.READY)return result;
         for(Attraction a:Attraction.SAMPLES)if(a.section.equals(section)
                 &&(category.equals("全部")||category.equals(a.category))
-                &&distanceKm(centerLatitude(),centerLongitude(),a.latitude,a.longitude)<=50)result.add(a);
+                &&distanceKm(centerLatitude(),centerLongitude(),a.latitude,a.longitude)<=1.0)result.add(a);
         return result;
     }
     static double distanceKm(double lat1,double lon1,double lat2,double lon2){

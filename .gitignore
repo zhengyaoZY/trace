@@ -8,3 +8,5 @@ xcuserdata/
 local.properties
 *.jks
 *.keystore
+
+baidu.properties

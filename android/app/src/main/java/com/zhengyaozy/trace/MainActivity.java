@@ -8,24 +8,19 @@ import android.content.res.ColorStateList;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.*;
-import org.osmdroid.config.Configuration;
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
-import org.osmdroid.util.GeoPoint;
-import org.osmdroid.views.MapView;
-import org.osmdroid.views.overlay.Marker;
-import java.io.File;
-
 public class MainActivity extends Activity {
     private static final int TEAL=Color.rgb(19,105,88), INK=Color.rgb(26,48,42), MUTED=Color.rgb(107,123,115);
     private static final int BACKGROUND=Color.rgb(247,249,245), PALE=Color.rgb(230,239,231);
     private LinearLayout root,body,navigation,toolbar;
     private TextView heading,city;
-    private MapView map;
+    private MapSurface map;
     private int tab=0;
     private String detailId;
+    private Attraction detail;
     private final ExploreState location=new ExploreState();
     private final String[] categories={"全部","全部"},selectedIds={null,null};
     private final double[] cameraLat={Double.NaN,Double.NaN},cameraLon={0,0},cameraZoom={12,12};
+    private final boolean[] cameraBd={false,false};
     private final int[] listOffsets={0,0};
     private ScrollView contentList;
     private LinearLayout cards;
@@ -33,19 +28,31 @@ public class MainActivity extends Activity {
     private LocationSource source;
     private int locationGeneration;
     private long fixTime;
-    static java.util.function.Supplier<LocationSource> testLocationSource;
+    static final class TestDependencies {
+        java.util.function.Supplier<LocationSource> location;
+        java.util.function.Function<android.content.Context,MapSurface> maps;
+        PoiProvider pois;
+        boolean consent=true,online=true;
+    }
+    static TestDependencies tests;
+    private PoiRepository repository;
+    private final android.os.Handler ui=new android.os.Handler(android.os.Looper.getMainLooper());
+    private String queryKey="";
+    private long queryGeneration;
+    private boolean loading,forceNext,privacyPrompted;
+    private PoiProvider.Failure poiFailure;
+    private java.util.List<Attraction> liveEntries=java.util.Collections.emptyList();
+    private final Runnable sdkChanged=()->{if(!isFinishing()){if(tab<2&&detailId==null)render();}};
+
 
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
-        Configuration.getInstance().setUserAgentValue(getPackageName()+"/0.3.0");
-        Configuration.getInstance().setOsmdroidBasePath(new File(getCacheDir(),"maps"));
-        Configuration.getInstance().setOsmdroidTileCache(new File(getCacheDir(),"maps/tiles"));
         root=column();root.setBackgroundColor(BACKGROUND);
         root.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
         toolbar=row();toolbar.setGravity(Gravity.CENTER_VERTICAL);toolbar.setPadding(dp(22),dp(12),dp(22),dp(12));
         heading=text("寻迹",23,true);toolbar.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
-        city=text("附近 50 km",11,true);city.setTextColor(TEAL);city.setPadding(dp(12),dp(9),dp(12),dp(9));city.setBackground(rounded(PALE,30));toolbar.addView(city);root.addView(toolbar);
+        city=text("半径 1 km",11,true);city.setTextColor(TEAL);city.setPadding(dp(12),dp(9),dp(12),dp(9));city.setBackground(rounded(PALE,30));toolbar.addView(city);root.addView(toolbar);
         body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));
         View divider=new View(this);divider.setBackgroundColor(Color.rgb(226,233,225));root.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
         navigation=row();navigation.setPadding(dp(16),dp(8),dp(16),dp(8));navigation.setBackgroundColor(Color.WHITE);root.addView(navigation);
@@ -55,10 +62,13 @@ public class MainActivity extends Activity {
             tab=state.getInt("tab");detailId=state.getString("detail");
             location.status=ExploreState.Status.valueOf(state.getString("locationStatus","IDLE"));
             if(location.status==ExploreState.Status.REQUESTING)location.status=ExploreState.Status.IDLE;
-            location.latitude=state.getDouble("fixLat",30.25);location.longitude=state.getDouble("fixLon",120.15);location.approximate=state.getBoolean("approximate");location.sampleRegion=state.getBoolean("sampleRegion",true);fixTime=state.getLong("fixTime");
-            for(int i=0;i<2;i++){categories[i]=state.getString("category"+i,"全部");selectedIds[i]=state.getString("selected"+i);cameraLat[i]=state.getDouble("lat"+i,Double.NaN);cameraLon[i]=state.getDouble("lon"+i);cameraZoom[i]=state.getDouble("zoom"+i,12);listOffsets[i]=state.getInt("offset"+i);}
+            location.latitude=state.getDouble("fixLat",30.24);location.longitude=state.getDouble("fixLon",120.15);location.approximate=state.getBoolean("approximate");location.sampleRegion=state.getBoolean("sampleRegion",true);fixTime=state.getLong("fixTime");
+            for(int i=0;i<2;i++){categories[i]=state.getString("category"+i,"全部");selectedIds[i]=state.getString("selected"+i);cameraLat[i]=state.getDouble("lat"+i,Double.NaN);cameraLon[i]=state.getDouble("lon"+i);cameraZoom[i]=state.getDouble("zoom"+i,15);cameraBd[i]=state.getBoolean("bd"+i);listOffsets[i]=state.getInt("offset"+i);}
         }
-        source=testLocationSource!=null?testLocationSource.get():new DeviceLocationSource(this);
+        if(state!=null&&state.getBoolean("detailOnline"))detail=Attraction.poi(state.getString("detailUid"),state.getString("detailName"),state.getString("detailAddress"),"",state.getDouble("detailLat"),state.getDouble("detailLon"),state.getString("detailSection"),state.getString("detailCategory"));
+        source=tests!=null&&tests.location!=null?tests.location.get():new DeviceLocationSource(this);
+        repository=new PoiRepository(tests!=null&&tests.pois!=null?tests.pois:new BaiduPoiProvider(),android.os.SystemClock::elapsedRealtime);
+        BaiduRuntime.observe(sdkChanged);
         render();
     }
     private void render(){
@@ -71,12 +81,12 @@ public class MainActivity extends Activity {
             b.setContentDescription(tabs[i]+(i==tab?"，已选中":""));b.setSelected(i==tab);
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(dp(5),0,dp(5),0);navigation.addView(b,p);
             b.setOnClickListener(v->{
-                saveViewport();tab=index;detailId=null;
+                saveViewport();repository.cancel();queryKey="";tab=index;detailId=null;detail=null;
                 if(tab<2){cameraLat[tab]=Double.NaN;if(location.status==ExploreState.Status.READY)location.sampleRegion=false;}else stopLocation();
                 render();if(tab<2)ensureLocation(false);
             });
         }
-        Attraction selected=Attraction.SAMPLES.stream().filter(a->a.id.equals(detailId)).findFirst().orElse(null);
+        Attraction selected=detail!=null?detail:Attraction.SAMPLES.stream().filter(a->a.id.equals(detailId)).findFirst().orElse(null);
         city.setVisibility(selected==null?View.VISIBLE:View.GONE);
         if(selected!=null){showDetail(selected);return;}
         heading.setText(tab==0?"人文":tab==1?"自然":"我的");
@@ -89,16 +99,16 @@ public class MainActivity extends Activity {
     }
     private void saveViewport(){
         if(tab<2&&detailId==null){
-            if(map!=null){cameraLat[tab]=map.getMapCenter().getLatitude();cameraLon[tab]=map.getMapCenter().getLongitude();cameraZoom[tab]=map.getZoomLevelDouble();}
+            if(map!=null){MapSurface.Camera c=map.snapshot();cameraLat[tab]=Float.isNaN(c.zoom)?Double.NaN:c.point.latitude;cameraLon[tab]=c.point.longitude;cameraBd[tab]=c.point.bd09;cameraZoom[tab]=c.zoom;}
             if(contentList!=null)listOffsets[tab]=contentList.getScrollY();
         }
     }
-    private void open(Attraction a){saveViewport();detailId=a.id;render();}
-    private void returnToExplore(){detailId=null;render();}
+    private void open(Attraction a){saveViewport();detailId=a.id;detail=a;render();}
+    private void returnToExplore(){detailId=null;detail=null;render();}
     private void showExplore(){
         LinearLayout status=row();status.setPadding(dp(18),0,dp(18),0);status.setGravity(Gravity.CENTER_VERTICAL);
         TextView label=text(location.label(),12,false);label.setTextColor(MUTED);label.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);status.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-        Button recenter=button("◎ 定位",false);recenter.setContentDescription("回到当前位置");recenter.setTextSize(12);status.addView(recenter);recenter.setOnClickListener(v->{cameraLat[tab]=Double.NaN;location.sampleRegion=false;ensureLocation(true);if(location.status==ExploreState.Status.READY)render();});body.addView(status);
+        Button recenter=button("◎ 定位",false);recenter.setContentDescription("回到当前位置");recenter.setTextSize(12);status.addView(recenter);recenter.setOnClickListener(v->{cameraLat[tab]=Double.NaN;location.sampleRegion=false;queryKey="";forceNext=true;ensureLocation(true);if(location.status==ExploreState.Status.READY)render();});body.addView(status);
         if(location.status!=ExploreState.Status.READY&&location.status!=ExploreState.Status.REQUESTING&&location.status!=ExploreState.Status.IDLE){
             LinearLayout actions=row();actions.setPadding(dp(18),dp(4),dp(18),0);
             Button retry=button("重试定位",false);retry.setTextSize(12);actions.addView(retry,new LinearLayout.LayoutParams(0,-2,1));retry.setOnClickListener(v->ensureLocation(true));
@@ -106,80 +116,115 @@ public class MainActivity extends Activity {
             Button permission=button("应用权限",false);permission.setTextSize(12);actions.addView(permission,new LinearLayout.LayoutParams(0,-2,1));permission.setOnClickListener(v->startActivity(new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+getPackageName()))));body.addView(actions);
         }
         HorizontalScrollView filter=new HorizontalScrollView(this);filter.setHorizontalScrollBarEnabled(false);LinearLayout chips=row();chips.setPadding(dp(14),dp(8),dp(14),dp(8));
-        String[] options=tab==0?new String[]{"全部","历史","美食"}:new String[]{"全部","政府管理景区","自驾路线","徒步路线"};
-        for(String option:options){Button chip=button(option,option.equals(categories[tab]));chip.setTextSize(12);chip.setSelected(option.equals(categories[tab]));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,-2);cp.setMargins(dp(4),0,dp(4),0);chips.addView(chip,cp);if(option.equals(categories[tab]))chip.post(()->filter.scrollTo(Math.max(0,chip.getLeft()-dp(14)),0));chip.setOnClickListener(v->{saveViewport();categories[tab]=option;selectedIds[tab]=null;listOffsets[tab]=0;render();});}filter.addView(chips);body.addView(filter);
-        java.util.List<Attraction> entries=location.nearby(tab==0?"人文":"自然",categories[tab]);
-        map=newMap();map.setContentDescription("探索地图");
-        double lat=Double.isNaN(cameraLat[tab])?location.centerLatitude():cameraLat[tab],lon=Double.isNaN(cameraLat[tab])?location.centerLongitude():cameraLon[tab];
-        map.getController().setZoom(Double.isNaN(cameraLat[tab])?(location.sampleRegion?11.0:12.0):cameraZoom[tab]);map.getController().setCenter(new GeoPoint(lat,lon));
-        if(location.status==ExploreState.Status.READY){Marker you=new Marker(map);you.setPosition(new GeoPoint(location.latitude,location.longitude));you.setTitle(location.approximate?"您的大致位置":"您的当前位置");you.setIcon(markerIcon(0));you.setAnchor(.5f,1);map.getOverlays().add(you);}
-        for(int i=0;i<entries.size();i++){Attraction a=entries.get(i);Marker marker=new Marker(map);marker.setPosition(new GeoPoint(a.latitude,a.longitude));marker.setAnchor(.5f,1);marker.setTitle(a.name);marker.setIcon(markerIcon(i+1));marker.setOnMarkerClickListener((m,v)->{selectContent(a.id);return true;});map.getOverlays().add(marker);}
-        LinearLayout.LayoutParams frame=new LinearLayout.LayoutParams(-1,0,1);frame.setMargins(dp(14),0,dp(14),0);body.addView(map,frame);addCredit(body);
+        String[] options=tab==0?new String[]{"全部","历史","美食"}:new String[]{"全部","自然景区","自驾路线","徒步路线"};
+        for(String option:options){Button chip=button(option,option.equals(categories[tab]));chip.setTextSize(12);chip.setSelected(option.equals(categories[tab]));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,-2);cp.setMargins(dp(4),0,dp(4),0);chips.addView(chip,cp);if(option.equals(categories[tab]))chip.post(()->filter.scrollTo(Math.max(0,chip.getLeft()-dp(14)),0));chip.setOnClickListener(v->{saveViewport();repository.cancel();queryKey="";liveEntries=java.util.Collections.emptyList();poiFailure=null;categories[tab]=option;selectedIds[tab]=null;listOffsets[tab]=0;render();});}filter.addView(chips);body.addView(filter);
+        map=newMap();map.view().setContentDescription("探索地图");
+        MapPoint gps=MapPoint.gps(location.centerLatitude(),location.centerLongitude());
+        prepareSearch(gps);
+        java.util.List<Attraction> entries=entries();
+        if(Double.isNaN(cameraLat[tab]))map.fitRadius(gps,PoiRepository.RADIUS_METERS);
+        else map.camera(new MapPoint(cameraLat[tab],cameraLon[tab],cameraBd[tab]),(float)cameraZoom[tab]);
+        map.features(entries,this::selectContent);
+        if(location.status==ExploreState.Status.READY)map.currentPosition(MapPoint.gps(location.latitude,location.longitude));
+        LinearLayout.LayoutParams frame=new LinearLayout.LayoutParams(-1,0,1);frame.setMargins(dp(14),0,dp(14),0);body.addView(map.view(),frame);addCredit(body);
         contentList=new ScrollView(this);contentList.setContentDescription("分类内容列表");contentList.setFillViewport(true);contentList.setSmoothScrollingEnabled(false);contentList.setFocusableInTouchMode(true);contentList.setDescendantFocusability(android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS);cards=column();cards.setPadding(dp(18),dp(4),dp(18),dp(12));contentList.addView(cards);body.addView(contentList,new LinearLayout.LayoutParams(-1,0,1));contentList.requestFocus();
+        if(poiFailure!=null&&!location.sampleRegion){caption(cards,PoiRepository.errorText(poiFailure),13);Button retry=button("重试检索",false);cards.addView(retry);retry.setOnClickListener(v->{queryKey="";forceNext=true;render();});}
         if(entries.isEmpty()){
-            title(cards,location.status==ExploreState.Status.REQUESTING?"正在获取当前位置…":"附近暂无示例内容",18);
-            caption(cards,"首版内置杭州内容；按探索位置周围 50 公里筛选。",13);
-            Button sample=button("查看杭州示例",false);cards.addView(sample);sample.setOnClickListener(v->{location.sampleRegion=true;cameraLat[tab]=Double.NaN;listOffsets[tab]=0;render();});
+            title(cards,loading?"正在检索周边…":location.sampleRegion?"一公里内暂无本地示例":"一公里内暂无可显示的景点",18);
+            caption(cards,location.sampleRegion?"本地示例仅用于离线阅读，不是实时检索。":onlineReady()?"仅显示当前位置半径 1 公里内的结果，不会自动扩大范围。":"百度在线接入待完成；请先同意 SDK 使用并配置 AK。",13);
+            Button sample=button("查看杭州示例",false);cards.addView(sample);sample.setOnClickListener(v->{repository.cancel();queryKey="";poiFailure=null;location.sampleRegion=true;cameraLat[tab]=Double.NaN;listOffsets[tab]=0;render();});
         }
         for(int i=0;i<entries.size();i++){
             Attraction a=entries.get(i);LinearLayout card=column();card.setPadding(dp(14),dp(12),dp(14),dp(12));card.setBackground(rounded(Color.WHITE,18));
-            eyebrow(card,String.format(java.util.Locale.ROOT,"%02d  /  %s",i+1,a.category));title(card,a.name,19);caption(card,a.subtitle,13);
+            eyebrow(card,a.category+(a.online?" · 百度周边":" · 本地示例"));title(card,a.name,19);caption(card,a.subtitle,13);
             if(a.isRoute())caption(card,String.format(java.util.Locale.CHINA,"示例路线 · 非导航  /  折线估算 %.1f km",a.distanceKm()),11);
             Button view=button("查看详情  ↗",false);view.setContentDescription("查看"+a.name);card.addView(view);view.setOnClickListener(v->open(a));
-            card.setOnClickListener(v->{selectContent(a.id);map.getController().setCenter(new GeoPoint(a.latitude,a.longitude));});
+            card.setOnClickListener(v->{selectContent(a.id);map.camera(new MapPoint(a.latitude,a.longitude,a.bd09),null);});
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(12);cards.addView(card,p);cardViews.put(a.id,card);
         }
-        updateSelection();final ScrollView list=contentList;final int offset=listOffsets[tab];list.post(()->list.scrollTo(0,offset));map.onResume();
+        updateSelection();final ScrollView list=contentList;final int offset=listOffsets[tab];list.post(()->list.scrollTo(0,offset));map.resume();
     }
     void selectContent(String id){selectedIds[tab]=id;updateSelection();LinearLayout card=cardViews.get(id);if(card!=null&&contentList!=null)contentList.smoothScrollTo(0,card.getTop());}
     private void updateSelection(){for(java.util.Map.Entry<String,LinearLayout> e:cardViews.entrySet()){GradientDrawable bg=rounded(Color.WHITE,18);boolean selected=e.getKey().equals(selectedIds[tab]);if(selected)bg.setStroke(dp(2),TEAL);e.getValue().setBackground(bg);e.getValue().setSelected(selected);}}
-    private MapView newMap(){MapView v=new MapView(this);v.setTileSource(TileSourceFactory.MAPNIK);v.setMultiTouchControls(true);v.setBuiltInZoomControls(false);v.setBackground(rounded(PALE,20));v.setClipToOutline(true);return v;}
-    private void addCredit(LinearLayout parent){TextView credit=text("",10,false);credit.setText(android.text.Html.fromHtml("© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap contributors</a> · ODbL",android.text.Html.FROM_HTML_MODE_LEGACY));credit.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());credit.setLinkTextColor(MUTED);credit.setPadding(dp(18),dp(5),dp(18),dp(5));parent.addView(credit);}
+    private boolean privacyGranted(){return tests!=null?tests.consent:getPreferences(MODE_PRIVATE).getBoolean("baiduPrivacy",false);}
+    private boolean onlineReady(){return tests!=null?tests.online&&tests.consent:privacyGranted()&&BaiduRuntime.state==BaiduRuntime.State.READY;}
+    private MapSurface newMap(){
+        if(tests!=null&&tests.maps!=null)return tests.maps.apply(this);
+        if(privacyGranted()&&BaiduRuntime.initialized)return new BaiduMapSurface(this);
+        return new UnavailableMapSurface(this,privacyGranted()?BaiduRuntime.message():"百度地图尚未启用\n可阅读文档与本地示例文本");
+    }
+    private void addCredit(LinearLayout parent){
+        TextView credit=text(onlineReady()?"百度地图 · 1 公里周边 · 中性等大圆点":"在线地图未就绪 · 示例与真实检索明确区分",10,false);credit.setTextColor(MUTED);credit.setPadding(dp(18),dp(5),dp(18),dp(5));parent.addView(credit);
+        if(tests==null&&BaiduRuntime.initialized&&BaiduRuntime.state!=BaiduRuntime.State.READY)caption(parent,BaiduRuntime.message(),12);
+    }
+    private String section(){return tab==0?"人文":"自然";}
+    private void prepareSearch(MapPoint gps){
+        if(!onlineReady()||location.sampleRegion||location.status!=ExploreState.Status.READY||categories[tab].endsWith("路线")){loading=false;return;}
+        MapPoint center=map.project(gps);
+        final String key=String.format(java.util.Locale.ROOT,"%.6f/%.6f/%s/%s",center.latitude,center.longitude,section(),categories[tab]);
+        if(key.equals(queryKey))return;
+        queryKey=key;final long generation=++queryGeneration;loading=true;poiFailure=null;liveEntries=java.util.Collections.emptyList();boolean refresh=forceNext;forceNext=false;
+        repository.load(center,section(),categories[tab],refresh,new PoiProvider.Callback(){
+            public void success(java.util.List<Attraction> places){ui.post(()->{if(generation!=queryGeneration||!key.equals(queryKey)||isFinishing())return;liveEntries=places;loading=false;poiFailure=null;if(tab<2&&detailId==null){saveViewport();render();}});}
+            public void failure(PoiProvider.Failure reason){ui.post(()->{if(generation!=queryGeneration||!key.equals(queryKey)||isFinishing())return;liveEntries=java.util.Collections.emptyList();loading=false;poiFailure=reason;if(tab<2&&detailId==null){saveViewport();render();}});}
+        });
+    }
+    private java.util.List<Attraction> entries(){
+        java.util.List<Attraction> result=new java.util.ArrayList<>();
+        if(location.sampleRegion)return location.nearby(section(),categories[tab]);
+        if(onlineReady()&&!categories[tab].endsWith("路线"))result.addAll(liveEntries);
+        for(Attraction a:location.nearby(section(),categories[tab]))if(a.isRoute())result.add(a);
+        return result;
+    }
+    private void consentDialog(){
+        privacyPrompted=true;
+        android.text.Spanned text=android.text.Html.fromHtml("启用百度地图后，SDK 将为地图和周边查询处理位置及必要设备信息，查询会发送至百度，不经过本应用后台。<br/><br/><a href=\"https://lbs.baidu.com/index.php?title=openprivacy\">百度地图开放平台隐私政策</a><br/><br/>定位权限另行申请。暂不使用仍可阅读文档与本地示例。",android.text.Html.FROM_HTML_MODE_LEGACY);
+        android.app.AlertDialog dialog=new android.app.AlertDialog.Builder(this).setTitle("百度地图使用说明").setMessage(text).setCancelable(false)
+            .setPositiveButton("同意并使用地图",(d,w)->{if(tests!=null)tests.consent=true;else{getPreferences(MODE_PRIVATE).edit().putBoolean("baiduPrivacy",true).putBoolean("privacyChoiceMade",true).apply();BaiduRuntime.start(this);}queryKey="";render();ensureLocation(false);})
+            .setNegativeButton("暂不使用",(d,w)->{if(tests!=null)tests.consent=false;else getPreferences(MODE_PRIVATE).edit().putBoolean("privacyChoiceMade",true).apply();location.sampleRegion=true;render();}).create();
+        dialog.show();android.widget.TextView message=dialog.findViewById(android.R.id.message);if(message!=null)message.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+    }
     private void showDetail(Attraction a){
         heading.setText(a.name);LinearLayout c=scrollContent();
         Button back=button("‹  返回探索",false);back.setBackground(ripple(Color.TRANSPARENT,16));back.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);c.addView(back);back.setOnClickListener(v->returnToExplore());
         if(a.isRoute()){
             space(c,8);title(c,"示例路线 · 非导航",20);caption(c,String.format(java.util.Locale.CHINA,"折线估算 %.1f km；不代表实际道路或步行距离。",a.distanceKm()),14);
-            map=newMap();map.setContentDescription("路线预览地图");java.util.List<GeoPoint> points=new java.util.ArrayList<>();
-            for(Attraction.Waypoint point:a.waypoints){GeoPoint geo=new GeoPoint(point.latitude,point.longitude);points.add(geo);Marker m=new Marker(map);m.setPosition(geo);m.setTitle(point.name);m.setIcon(markerIcon(points.size()));m.setAnchor(.5f,1);map.getOverlays().add(m);}
-            org.osmdroid.views.overlay.Polyline line=new org.osmdroid.views.overlay.Polyline();line.setPoints(points);line.getOutlinePaint().setColor(TEAL);line.getOutlinePaint().setStrokeWidth(dp(3));line.getOutlinePaint().setPathEffect(new DashPathEffect(new float[]{dp(8),dp(5)},0));map.getOverlays().add(0,line);
-            final MapView routeMap=map;map.addOnFirstLayoutListener((v,l,t,r,b)->{if(map==routeMap)routeMap.zoomToBoundingBox(org.osmdroid.util.BoundingBox.fromGeoPoints(points),false,dp(32));});
-            c.addView(map,new LinearLayout.LayoutParams(-1,dp(200)));addCredit(c);map.onResume();
+            map=newMap();map.view().setContentDescription("路线预览地图");map.route(a.waypoints);
+            c.addView(map.view(),new LinearLayout.LayoutParams(-1,dp(200)));addCredit(c);map.resume();
             for(int i=0;i<a.waypoints.size();i++)caption(c,String.format(java.util.Locale.CHINA,"%d  %s",i+1,a.waypoints.get(i).name),14);
-        }else{
+        }else if(!a.online){
         int index=Attraction.SAMPLES.indexOf(a)%3;TraceArt art=new TraceArt(this,index);art.setBackground(rounded(PALE,22));art.setClipToOutline(true);c.addView(art,new LinearLayout.LayoutParams(-1,dp(175)));
         }
-        space(c,20);eyebrow(c,"杭州示例  /  分类内容");title(c,a.subtitle,24);caption(c,a.introduction,16);
+        space(c,20);eyebrow(c,a.online?"百度周边 / 实时检索":"杭州示例 / 本地内容");title(c,a.subtitle,24);if(!a.introduction.equals(a.subtitle))caption(c,a.introduction,16);
         space(c,22);LinearLayout article=column();article.setPadding(dp(18),dp(20),dp(18),dp(20));article.setBackground(rounded(Color.WHITE,22));
-        eyebrow(article,"READ THE CITY");title(article,"文字讲解",20);TextView narration=caption(article,a.narration,17);narration.setTextColor(INK);narration.setLineSpacing(dp(7),1);narration.setTextIsSelectable(true);c.addView(article);
+        eyebrow(article,"READ THE CITY");title(article,a.online?"地点介绍":"文字讲解",20);TextView narration=caption(article,a.narration,17);narration.setTextColor(INK);narration.setLineSpacing(dp(7),1);narration.setTextIsSelectable(true);c.addView(article);
         if(!a.manager.isEmpty()){
             space(c,18);title(c,"管理与来源",18);caption(c,a.manager,14);TextView link=caption(c,a.source,13);android.text.util.Linkify.addLinks(link,android.text.util.Linkify.WEB_URLS);link.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         }
-        space(c,12);caption(c,"杭州内置示例 · 内容不随位置自动更新",12);
-    }
-    private Drawable markerIcon(int number){
-        Bitmap image=Bitmap.createBitmap(dp(38),dp(46),Bitmap.Config.ARGB_8888);Canvas c=new Canvas(image);c.scale(image.getWidth()/38f,image.getHeight()/46f);Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(TEAL);Path point=new Path();point.moveTo(12,30);point.lineTo(19,44);point.lineTo(26,30);point.close();c.drawPath(point,p);c.drawCircle(19,18,17,p);p.setColor(Color.WHITE);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(2);c.drawCircle(19,18,14,p);p.setStyle(Paint.Style.FILL);p.setTextSize(14);p.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));p.setTextAlign(Paint.Align.CENTER);c.drawText(number==0?"◎":String.valueOf(number),19,23,p);return new BitmapDrawable(getResources(),image);
+        space(c,12);caption(c,a.online?"来源：百度地图 POI · 排名与热度暂无可用官方数据":"杭州内置示例 · 内容不随位置自动更新",12);
     }
     private void showProfile(){
         LinearLayout c=scrollContent();eyebrow(c,"TRACE / DOCUMENTATION");title(c,"应用说明",28);caption(c,"认识寻迹，开始你的城市探索。",15);
         document(c,"使用指南","人文与自然首页以当前位置为中心展示地图。横向切换分类，地图标记与卡片同步筛选。轻点标记选中卡片，点击查看详情阅读内容。◎ 定位可回到当前位置。点击卡片空白处可在地图中聚焦。");
-        document(c,"分类说明","人文包含历史、美食；自然包含政府管理景区、自驾路线、徒步路线。路线是静态示意，不是实测轨迹或导航，折线距离不代表真实行程距离。");
-        document(c,"定位与隐私","只申请前台定位，支持大致位置，不在后台跟踪，不保存定位历史、不上传至业务后台。定位失败时明确标注杭州示例区域。地图瓦片服务会收到网络请求，可据瓦片推断所浏览的区域。");
-        document(c,"示例数据与地图","首版仅内置杭州示例，按探索位置周围 50 公里筛选，其他地区可能暂无内容。查看杭州示例只改变探索区域，不表示您已位于杭州。文本可离线阅读，底图来自 OpenStreetMap，需联网加载。官方来源链接与景区公告用于核对信息，不提供实时营业、路况或通行保证。");
-        document(c,"版本信息","寻迹 Android 0.3.0（3）\n无账号、无业务后台；个人试用的调试版本。地图：osmdroid / OpenStreetMap，数据遵循 ODbL。");
+        document(c,"分类说明","人文包含历史、美食；自然包含自然景区、自驾路线、徒步路线。路线是静态示意，不是实测轨迹或导航，折线距离不代表真实行程距离。");
+        Button enable=button("百度地图使用与配置",false);c.addView(enable);enable.setOnClickListener(v->{if(!privacyGranted())consentDialog();else new android.app.AlertDialog.Builder(this).setTitle("百度地图配置").setMessage(tests!=null?"测试数据，非在线验证":BaiduRuntime.message()+"\n配置步骤见仓库 Android 文档。Android AK 必须绑定包名及 APK 签名 SHA-1。定位授权并不等同于 SDK 使用同意。").setPositiveButton("知道了",null).show();});
+        document(c,"定位与隐私","只申请前台定位，支持大致位置，不在后台跟踪，不保存定位历史、不上传至业务后台。定位失败时明确标注杭州示例区域。同意百度 SDK 使用后，位置与必要设备信息会由 SDK 向百度发送以提供地图和检索服务；不经过本应用后台。未同意前不初始化 SDK。");
+        document(c,"百度周边与圆点", "百度 Android SDK 9.0.0 直接检索当前位置半径 1000 米的周边地点，无业务后台。检索最多显示 100 条，按 UID 去重及距离排序。同一位置与分类缓存五分钟，定位按钮可刷新。拖动和缩放只改变视野，不改变检索中心。SDK 未提供官方榜单排名和近七天热度，本阶段统一使用等大圆点，不用评分、评论数或搜索顺序冒充热度。");
+        document(c,"示例数据与地图","真实景点来自百度周边检索；示例模式仅提供杭州本地内容，两者明确标注。自驾、徒步是本地示例路线，按起点是否在一公里内筛选，不是百度规划路线。查看杭州示例只改变探索区域，不表示您已位于杭州。文本可离线阅读，底图来自百度地图，需有效 AK、SDK 使用同意和网络。没有 AK 时仅可阅读示例与文档，在线接入待验证。官方来源链接与景区公告用于核对信息，不提供实时营业、路况或通行保证。");
+        document(c,"版本信息","寻迹 Android 0.4.0（4）\n无账号、无业务后台；个人试用的调试版本。地图与检索：百度地图 SDK 9.0.0。");
     }
     private void document(LinearLayout c,String title,String description){space(c,16);LinearLayout panel=column();panel.setPadding(dp(16),dp(10),dp(16),dp(16));panel.setBackground(rounded(Color.WHITE,20));title(panel,title,18);caption(panel,description,15);c.addView(panel);}
     private boolean permitted(){return checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)==android.content.pm.PackageManager.PERMISSION_GRANTED||checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)==android.content.pm.PackageManager.PERMISSION_GRANTED;}
     private void ensureLocation(boolean explicit){
-        if(tab==2)return;
+        if(tab==2||!privacyGranted())return;
         if(location.status==ExploreState.Status.REQUESTING)return;
-        if(testLocationSource==null&&!permitted()){
+        if(tests==null&&!permitted()){
             if(explicit||!getPreferences(MODE_PRIVATE).getBoolean("askedLocation",false)){
                 location.status=ExploreState.Status.REQUESTING;location.sampleRegion=true;render();getPreferences(MODE_PRIVATE).edit().putBoolean("askedLocation",true).apply();
                 requestPermissions(new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION,android.Manifest.permission.ACCESS_COARSE_LOCATION},73);
             }else{location.fail(ExploreState.Status.DENIED);render();}return;
         }
-        if(testLocationSource==null){android.location.LocationManager manager=(android.location.LocationManager)getSystemService(LOCATION_SERVICE);if(manager==null||(!manager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)&&!manager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER))){location.fail(ExploreState.Status.DISABLED);render();return;}}
+        if(tests==null){android.location.LocationManager manager=(android.location.LocationManager)getSystemService(LOCATION_SERVICE);if(manager==null||(!manager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)&&!manager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER))){location.fail(ExploreState.Status.DISABLED);render();return;}}
         if(location.status==ExploreState.Status.READY&&android.os.SystemClock.elapsedRealtime()-fixTime<120_000){if(explicit){location.sampleRegion=false;render();}return;}
         location.status=ExploreState.Status.REQUESTING;location.sampleRegion=true;render();final int generation=++locationGeneration;
         source.start(new LocationSource.Callback(){
@@ -189,14 +234,14 @@ public class MainActivity extends Activity {
     }
     private void stopLocation(){locationGeneration++;if(source!=null)source.cancel();if(location.status==ExploreState.Status.REQUESTING)location.status=ExploreState.Status.IDLE;}
     @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(code!=73)return;location.status=ExploreState.Status.IDLE;if(tab==2)return;if(permitted())ensureLocation(false);else{location.fail(ExploreState.Status.DENIED);render();}}
-    @Override protected void onStart(){super.onStart();if(tab<2)ensureLocation(false);}
-    @Override protected void onStop(){saveViewport();stopLocation();super.onStop();}
+    @Override protected void onStart(){super.onStart();if(privacyGranted()){if(tests==null)BaiduRuntime.start(this);if(tab<2)ensureLocation(false);}else if(!privacyPrompted&&(tests!=null||!getPreferences(MODE_PRIVATE).getBoolean("privacyChoiceMade",false)))consentDialog();}
+    @Override protected void onStop(){saveViewport();repository.cancel();queryKey="";stopLocation();super.onStop();}
     @Override public void onBackPressed(){if(detailId!=null){returnToExplore();}else if(tab!=0){tab=0;cameraLat[0]=Double.NaN;render();ensureLocation(false);}else super.onBackPressed();}
-    @Override protected void onSaveInstanceState(Bundle s){saveViewport();s.putString("locationStatus",location.status.name());s.putDouble("fixLat",location.latitude);s.putDouble("fixLon",location.longitude);s.putBoolean("approximate",location.approximate);s.putBoolean("sampleRegion",location.sampleRegion);s.putLong("fixTime",fixTime);s.putInt("tab",tab);s.putString("detail",detailId);for(int i=0;i<2;i++){s.putString("category"+i,categories[i]);s.putString("selected"+i,selectedIds[i]);s.putDouble("lat"+i,cameraLat[i]);s.putDouble("lon"+i,cameraLon[i]);s.putDouble("zoom"+i,cameraZoom[i]);s.putInt("offset"+i,listOffsets[i]);}super.onSaveInstanceState(s);}
-    @Override protected void onResume(){super.onResume();if(map!=null)map.onResume();}
-    @Override protected void onPause(){if(map!=null)map.onPause();super.onPause();}
-    @Override protected void onDestroy(){stopLocation();disposeMap();super.onDestroy();}
-    private void disposeMap(){if(map!=null){map.onPause();map.onDetach();map=null;}}
+    @Override protected void onSaveInstanceState(Bundle s){saveViewport();if(detail!=null&&detail.online){s.putBoolean("detailOnline",true);s.putString("detailUid",detail.id.substring(6));s.putString("detailName",detail.name);s.putString("detailAddress",detail.subtitle);s.putDouble("detailLat",detail.latitude);s.putDouble("detailLon",detail.longitude);s.putString("detailSection",detail.section);s.putString("detailCategory",detail.category);}s.putString("locationStatus",location.status.name());s.putDouble("fixLat",location.latitude);s.putDouble("fixLon",location.longitude);s.putBoolean("approximate",location.approximate);s.putBoolean("sampleRegion",location.sampleRegion);s.putLong("fixTime",fixTime);s.putInt("tab",tab);s.putString("detail",detailId);for(int i=0;i<2;i++){s.putString("category"+i,categories[i]);s.putString("selected"+i,selectedIds[i]);s.putDouble("lat"+i,cameraLat[i]);s.putDouble("lon"+i,cameraLon[i]);s.putDouble("zoom"+i,cameraZoom[i]);s.putBoolean("bd"+i,cameraBd[i]);s.putInt("offset"+i,listOffsets[i]);}super.onSaveInstanceState(s);}
+    @Override protected void onResume(){super.onResume();if(map!=null)map.resume();}
+    @Override protected void onPause(){if(map!=null)map.pause();super.onPause();}
+    @Override protected void onDestroy(){BaiduRuntime.remove(sdkChanged);repository.cancel();stopLocation();disposeMap();super.onDestroy();}
+    private void disposeMap(){if(map!=null){map.pause();map.destroy();map=null;}}
     private LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     private LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.HORIZONTAL);return v;}
     private TextView text(String value,int sp,boolean bold){TextView v=new TextView(this);v.setText(value);v.setTextSize(sp);v.setTextColor(INK);v.setIncludeFontPadding(false);v.setTypeface(Typeface.create(bold?"sans-serif-medium":"sans-serif",Typeface.NORMAL));return v;}

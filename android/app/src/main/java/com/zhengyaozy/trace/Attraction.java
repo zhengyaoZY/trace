@@ -3,6 +3,7 @@ import java.util.List;
 public final class Attraction {
     public final String id, name, subtitle, introduction, narration;
     public final double latitude, longitude;
+    public final boolean online,bd09;
     public final String section, category, manager, source;
     public final java.util.List<Waypoint> waypoints;
     public static final class Waypoint {
@@ -12,15 +13,24 @@ public final class Attraction {
     }
     private Attraction(String id, String name, String subtitle, String introduction, String narration, double latitude, double longitude) {
         this(id,name,subtitle,introduction,narration,latitude,longitude,
-            id.equals("west-lake")?"自然":"人文",id.equals("west-lake")?"政府管理景区":"历史",
+            id.equals("west-lake")?"自然":"人文",id.equals("west-lake")?"自然景区":"历史",
             id.equals("west-lake")?"杭州西湖风景名胜区管理委员会":"",
             id.equals("west-lake")?"https://westlake.hangzhou.gov.cn/":"",java.util.Collections.emptyList());
     }
     private Attraction(String id,String name,String subtitle,String introduction,String narration,double latitude,double longitude,
             String section,String category,String manager,String source,java.util.List<Waypoint> waypoints){
+        this(id,name,subtitle,introduction,narration,latitude,longitude,section,category,manager,source,waypoints,false);
+    }
+    private Attraction(String id,String name,String subtitle,String introduction,String narration,double latitude,double longitude,
+            String section,String category,String manager,String source,java.util.List<Waypoint> waypoints,boolean online){
+        this.online=online;this.bd09=online;
         this.id=id;this.name=name;this.subtitle=subtitle;this.introduction=introduction;this.narration=narration;
         this.latitude=latitude;this.longitude=longitude;this.section=section;this.category=category;
         this.manager=manager;this.source=source;this.waypoints=java.util.Collections.unmodifiableList(waypoints);
+    }
+    static Attraction poi(String uid,String name,String address,String tag,double lat,double lon,String section,String category){
+        String description=address==null||address.isEmpty()?"地址暂缺":address;
+        return new Attraction("baidu:"+uid,name,description,description,"暂无介绍",lat,lon,section,category,"","百度地图 POI",java.util.Collections.emptyList(),true);
     }
     public boolean isRoute(){return !waypoints.isEmpty();}
     public double distanceKm(){double total=0;for(int i=1;i<waypoints.size();i++){Waypoint a=waypoints.get(i-1),b=waypoints.get(i);total+=ExploreState.distanceKm(a.latitude,a.longitude,b.latitude,b.longitude);}return total;}

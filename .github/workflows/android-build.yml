@@ -7,6 +7,8 @@ on:
     branches: [main]
     paths: ['android/**', '.github/workflows/android-build.yml']
   workflow_dispatch:
+env:
+  BAIDU_MAP_AK: ${{ secrets.BAIDU_MAP_AK }}
 permissions:
   contents: read
 jobs:
