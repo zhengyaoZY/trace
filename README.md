@@ -1,5 +1,7 @@
 # 寻迹 Trace
 
+现提供 Android 0.6.0 前后端接入预览版本（当前 APK 未配置服务地址与 AK，默认高德地图、百度保留可切换；真实在线地图与指标待验证），可[下载 Android 安装包](downloads/README.md)，参见 [Android 运行与 APK 安装说明](android/README.md)。Android 工程位于 `android/`，后端位于 `server/`，参见[后端运行与 API 文档](server/README.md)。下文为 iOS 版本说明。
+
 一个以杭州为示例的导游型 iOS 应用基础工程，使用 SwiftUI 和 MapKit，支持 iOS 17.0 及以上的 iPhone、iPad。界面为简体中文，采用青绿色主题，支持系统深浅色和动态字体。
 
 ## 功能

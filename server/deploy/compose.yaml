@@ -1,0 +1,19 @@
+name: ${COMPOSE_PROJECT_NAME:-trace-api}
+services:
+  api:
+    image: ${API_IMAGE:?Set the full ACR image address and immutable digest}
+    env_file:
+      - ${API_ENV_FILE:?Set the absolute path of the private runtime env file}
+    ports:
+      - '${API_BIND_IP:-127.0.0.1}:${API_PORT:-3000}:3000'
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'

@@ -1,0 +1,44 @@
+plugins { id 'com.android.application' }
+def amapProperties = new Properties()
+def amapFile = rootProject.file('amap.properties')
+if (amapFile.exists()) amapFile.withInputStream { amapProperties.load(it) }
+def amapKey = System.getenv('AMAP_MAP_KEY') ?: amapProperties.getProperty('AMAP_MAP_KEY', '')
+def baiduProperties = new Properties()
+def baiduFile = rootProject.file('baidu.properties')
+if (baiduFile.exists()) baiduFile.withInputStream { baiduProperties.load(it) }
+def apiProperties = new Properties()
+def apiFile = rootProject.file('api.properties')
+if (apiFile.exists()) apiFile.withInputStream { apiProperties.load(it) }
+def apiBaseUrl = System.getenv('API_BASE_URL') ?: apiProperties.getProperty('API_BASE_URL', '')
+def baiduAk = System.getenv('BAIDU_MAP_AK') ?: baiduProperties.getProperty('BAIDU_MAP_AK', '')
+
+android {
+    namespace 'com.zhengyaozy.trace'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.zhengyaozy.trace'
+        minSdk 26
+        targetSdk 35
+        versionCode 6
+        versionName '0.6.0'
+        buildConfigField 'String', 'API_BASE_URL', groovy.json.JsonOutput.toJson(apiBaseUrl)
+        manifestPlaceholders = [BAIDU_MAP_AK: baiduAk, AMAP_MAP_KEY: amapKey]
+        buildConfigField 'boolean', 'AMAP_KEY_CONFIGURED', (!amapKey.isBlank()).toString()
+        buildConfigField 'boolean', 'BAIDU_KEY_CONFIGURED', (!baiduAk.isBlank()).toString()
+        ndk { abiFilters.addAll((project.findProperty('traceAbis') ?: 'armeabi-v7a,arm64-v8a').split(',')) }
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    buildFeatures { buildConfig true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+dependencies {
+    implementation 'com.amap.api:3dmap:10.0.600'
+    implementation 'com.baidu.lbsyun:BaiduMapSDK_Map:9.0.0'
+    implementation 'com.baidu.lbsyun:BaiduMapSDK_Util:9.0.0'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
+}
